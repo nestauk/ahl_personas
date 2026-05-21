@@ -126,7 +126,10 @@ body {
 .badge-evidence,
 .badge-analogical,
 .badge-reasoning,
-.badge-gap {
+.badge-gap,
+.badge-high,
+.badge-moderate,
+.badge-low {
   display: inline;
   padding: 0.1em 0.5em;
   border-radius: 9999px;
@@ -159,6 +162,24 @@ body {
   background-color: #ffe4e6;
   color: #be123c;
   border: 1px solid #fecdd3;
+}
+
+.badge-high {
+  background-color: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.badge-moderate {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.badge-low {
+  background-color: #f3f4f6;
+  color: #4b5563;
+  border: 1px solid #e5e7eb;
 }
 
 /* Analysis section spacing — extra separation between sub-group sections */

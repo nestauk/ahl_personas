@@ -150,12 +150,42 @@ The following policy has been fully specified through the Socratic questioning s
 
 ## Output format
 
-1. Present the modifier relevance scan as a table
-2. Present 4–6 proposed sub-groups with:
+### Part 1 — Population Relevance Assessment
+
+Start with a heading "## Population Relevance Assessment" followed by a one-line summary of how many characteristics were rated HIGH or MODERATE (e.g. "22 characteristics rated HIGH or MODERATE across 6 categories.").
+
+Then present each category under a `###` heading with a compact table. Within each table, sort rows by relevance — HIGH first, then MODERATE, then LOW. Use `[High]`, `[Moderate]`, or `[Low]` tags in the Relevance column (these render as colour-coded badges in the UI). Each reasoning cell should be a single concise sentence.
+
+```
+### Geography
+
+| Characteristic | Relevance | Reasoning |
+|---|---|---|
+| Urban deprived | [High] | High reliance on convenience stores makes caps directly salient but risks stock withdrawal where margins are tight |
+| Rural deprived | [High] | Sparse retail and higher distribution costs mean caps may bind on price yet prompt small stores to de-stock essentials |
+| Suburban mixed | [Moderate] | Mixed retail access and car reliance mean some benefit via supermarkets while weaker competition areas may see availability constraints |
+| Urban mixed | [Moderate] | Co-existing cheap and premium outlets implies uneven pass-through and potential localised de-stocking |
+| Urban affluent | [Low] | Abundant retail choice and higher incomes reduce any differential effect |
+```
+
+The category headings must be:
+- `### Geography`
+- `### Household and Financial Context`
+- `### Time, Routine and Domestic Capacity`
+- `### Emotional and Cognitive Bandwidth`
+- `### Diet, Food and Health Needs`
+- `### Ethnicity and Cultural Food Practices`
+
+### Part 2 — Proposed Sub-groups
+
+After the relevance assessment, present 4–6 proposed sub-groups with:
    - A name (the modifier combination, e.g. "Urban deprived + Financially strained + Family with children")
    - The modifiers included
    - A brief rationale (2–3 sentences) explaining why this sub-group was selected and what differential impact you expect
-3. End with a `<proposed_sub_groups>` JSON block (see below)
+
+### Part 3 — Structured output
+
+End with a `<proposed_sub_groups>` JSON block (see below)
 
 ## Structured output requirement
 

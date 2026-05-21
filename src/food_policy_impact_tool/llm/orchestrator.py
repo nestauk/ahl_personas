@@ -725,6 +725,7 @@ async def stream_response(
         system_prompt = raw_prompt.replace("{{POLICY_SPECIFICATION}}", policy_spec)
         evidence_context = None
 
+        logger.info("[scan] Starting population relevance scan")
         yield ("data", {"type": "analysis_step", "step": "scan", "status": "active"})
 
         api_messages = _build_messages(
@@ -732,6 +733,7 @@ async def stream_response(
             messages=messages,
         )
 
+        logger.info("[scan] Calling LLM (model=%s)", settings.openai_model)
         stream = await client.chat.completions.create(
             model=settings.openai_model,
             messages=api_messages,
@@ -739,21 +741,52 @@ async def stream_response(
         )
 
         full_response: list[str] = []
+        token_count = 0
         async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:
                 full_response.append(delta.content)
-                yield ("text", delta.content)
+                token_count += 1
+                if token_count == 1:
+                    logger.info("[scan] First token received — streaming to panel")
+                yield ("analysis_content", {
+                    "section": "scan",
+                    "delta": delta.content,
+                })
 
+        logger.info("[scan] Stream complete — %d chunks received", token_count)
         yield ("data", {"type": "analysis_step", "step": "scan", "status": "complete"})
 
         full_text = "".join(full_response)
         subgroups_data = _extract_subgroups_from_response(full_text)
         if subgroups_data is not None:
+            relevance_scan = subgroups_data.get("relevance_scan", {})
+            high_count = sum(
+                1 for v in relevance_scan.values()
+                if isinstance(v, str) and v.upper() == "HIGH"
+            )
+            subgroup_count = len(subgroups_data.get("subgroups", []))
+            logger.info(
+                "[scan] Extracted %d sub-groups, %d HIGH-relevance characteristics",
+                subgroup_count,
+                high_count,
+            )
+
             yield ("data", {
                 "type": "proposed_sub_groups",
                 **subgroups_data,
             })
+
+            summary = (
+                f"I've assessed all population characteristics against this policy. "
+                f"{high_count} rated as highly relevant — "
+                f"see the full assessment in the analysis panel. "
+                f"I've proposed {subgroup_count} sub-groups for detailed analysis. "
+                f"Review and confirm them in the sidebar."
+            )
+            yield ("text", summary)
+        else:
+            logger.warning("[scan] Failed to extract sub-groups from scan response")
 
         return
 

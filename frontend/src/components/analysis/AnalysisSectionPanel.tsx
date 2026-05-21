@@ -6,6 +6,9 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { renderGroundingBadges } from "@/lib/grounding-badges";
 
+const SUBGROUPS_BLOCK_REGEX =
+  /\s*<proposed_sub_groups>[\s\S]*?<\/proposed_sub_groups>\s*/g;
+
 interface AnalysisSectionPanelProps {
   content: string;
   isStreaming: boolean;
@@ -26,7 +29,8 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [content, isStreaming]);
 
-  const processed = renderGroundingBadges(content);
+  const stripped = content.replace(SUBGROUPS_BLOCK_REGEX, "").trimEnd();
+  const processed = renderGroundingBadges(stripped);
 
   return (
     <div className="flex-1 overflow-y-auto px-8 py-6">

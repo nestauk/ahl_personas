@@ -512,163 +512,81 @@ Only these four patterns are matched — no arbitrary HTML from LLM output passe
 
 ---
 
-## 2026-05-21 — Phase 3 follow-up: Analysis artifact panels
-
-### Problem
-
-The original Phase 3 implementation streamed the entire multi-sub-group analysis as one long assistant message via `react-markdown`. This caused the browser tab to become unresponsive — each streamed text delta triggered a full re-render of the growing markdown content. With 5–6 sub-groups producing 2000+ words each plus synthesis, the accumulated message overwhelmed the browser.
+## 2026-05-21 — Phase 3 follow-up: Scan output as artefact + unified sidebar
 
 ### What was done
 
-Moved analysis output from a single chat message into **per-section artifact panels**, rendered in a dedicated analysis view that replaces the chat area during analysis and sits alongside it afterwards.
+Two related changes to the analysis flow UX:
 
-### Architecture change: analysis_content data events
+1. **Scan output moved to artefact panel** — the population relevance scan (previously a long table streamed inline in the chat) now renders in the same artefact panel used for the per-sub-group analysis. The chat receives a brief summary message instead.
 
-The orchestrator no longer yields `("text", delta)` for sub-group and synthesis calls. Instead, the chain orchestrator re-tags inner text yields as `("analysis_content", {"section": "sg_0", "delta": "..."})`. The inner functions (`_stream_subgroup_with_tools`, `_stream_synthesis`) remain unchanged — the re-tagging happens at the `stream_analysis_chain` level, keeping separation of concerns clean.
-
-`chat.py` formats these as `2:` data messages with `{"type": "analysis_content", "section": "sg_0", "delta": "..."}`. Non-text yields (data events for progress, evidence search) pass through unchanged.
-
-Section IDs follow a convention: `"sg_0"`, `"sg_1"`, etc. for sub-group analyses, `"synthesis"` for the final call. These IDs are stable and match between the `analysis_step` progress events and the content events.
-
-### Frontend: analysis sections state
-
-`ChatContainer` now manages three new pieces of state:
-
-- **`analysisSections`** (`Map<string, AnalysisSection>`) — accumulates content per section. Each `analysis_content` data event appends its delta to the correct section's content buffer. Section names are derived from the confirmed sub-groups list (for `sg_N` sections) or hardcoded ("Equity synthesis and provocations" for `synthesis`).
-- **`activeSection`** (`string | null`) — the currently displayed section. Set automatically when a new section starts streaming (via `analysis_step` active events), and changeable by the analyst via the sidebar stepper.
-- **`streamingSection`** (`string | null`) — which section is currently receiving content. Used to show a streaming indicator and enable auto-scroll. Cleared when the section completes.
-
-### Frontend: AnalysisView and AnalysisSectionPanel
-
-**`AnalysisView`** — displays the active section. Shows a header bar with the section name and delegates rendering to `AnalysisSectionPanel`. When no section is selected, shows a placeholder message.
-
-**`AnalysisSectionPanel`** — memoised component that renders one section's accumulated markdown with grounding badges (via the shared `renderGroundingBadges` utility). Uses `rehype-raw` for the grounding badge `<span>` elements. Auto-scrolls to the bottom while the section is streaming (throttled to 500ms intervals to avoid layout thrashing). Shows a pulsing dot indicator while streaming.
-
-Performance is the key benefit: only the active section's markdown is rendered at any time, rather than the entire analysis. Each section's content grows independently, and re-renders are isolated to the visible panel.
-
-### Frontend: layout modes
-
-`ChatContainer` now renders three distinct layouts:
-
-1. **Specifying / scanning** (no analysis running): Full-width chat — `MessageList` + `ChatInput` + `TaxonomyHints`. Same as before.
-
-2. **Analysing** (analysis running, sections exist): Full-width `AnalysisView`. The chat is hidden — the analyst watches the analysis build section by section. No chat input needed during analysis.
-
-3. **Chatting with analysis** (analysis complete, sections exist): **60/40 split view** — `AnalysisView` on the left (60% width, border-separated), chat column on the right (40% width) with `MessageList` + `ChatInput`. The analyst can navigate analysis sections while asking follow-up questions.
-
-### Frontend: sidebar persistence
-
-The `AnalysisProgressPanel` in the sidebar now persists across the `analysing` → `chatting` stage transition. Previously, the sidebar's conditional rendering only showed the progress panel when `stage === "analysing"`, causing the section navigation to vanish when the analysis completed. Now, the sidebar shows the progress panel whenever analysis steps exist, regardless of stage.
-
-### Frontend: completion message
-
-When the `stage_transition` to `chatting` arrives, a synthetic assistant message is inserted into the chat: "Analysis complete — N sections analysed. Ask follow-up questions below, or navigate sections in the analysis panel." This gives the chat column immediate context for the follow-up conversation.
-
-### Shared utility: grounding badges
-
-Extracted `renderGroundingBadges` from `MessageBubble` into `frontend/src/lib/grounding-badges.ts`. Used by both `MessageBubble` (for chat messages) and `AnalysisSectionPanel` (for analysis content). Keeps the strict regex pattern in one place.
-
-### Files created
-
-- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — memoised single-section markdown renderer
-- `frontend/src/components/analysis/AnalysisView.tsx` — section display with header bar
-- `frontend/src/lib/grounding-badges.ts` — shared grounding badge regex utility
-
-### Files modified
-
-**Backend:**
-- `src/food_policy_impact_tool/llm/orchestrator.py` — `stream_analysis_chain` re-tags text yields from sub-group and synthesis calls as `("analysis_content", {section, delta})`. Error banners also emitted as analysis_content.
-- `src/food_policy_impact_tool/api/routes/chat.py` — handles new `"analysis_content"` part type, formats as `2:` data message with `{type: "analysis_content", section, delta}`.
-
-**Frontend:**
-- `frontend/src/lib/types.ts` — added `AnalysisSection` and `AnalysisContentEvent` interfaces, added to `AnalysisDataEvent` union.
-- `frontend/src/components/chat/ChatContainer.tsx` — major rewrite: analysis sections state, `analysis_content` event handling, three layout modes (full chat / full analysis / split view), `handleSelectSection` callback, completion message insertion, reset of new state in `handleNewSession` and `handleRunAnalysis`.
-- `frontend/src/components/analysis/AnalysisProgressPanel.tsx` — rewritten: accepts `onSelectSection` callback, clicking completed/active steps triggers section navigation. Removed DOM scroll approach.
-- `frontend/src/components/specification/SpecificationSidebar.tsx` — passes `onSelectSection` through to `AnalysisProgressPanel`. Sidebar now shows progress panel in both `analysing` and `chatting` stages when analysis steps exist.
-- `frontend/src/components/chat/MessageBubble.tsx` — `renderGroundingBadges` extracted to shared utility.
-- `frontend/src/components/chat/MessageList.tsx` — removed unused `isStreaming` prop passed to `MessageBubble`.
-
-### Bug fixes
-
-- **Sidebar disappearing after analysis**: The `AnalysisProgressPanel` was only rendered when `stage === "analysing"`. After the stage transition to `chatting`, the progress panel vanished and the analyst lost section navigation. Fixed by also rendering the panel when `stage === "chatting"` and analysis steps exist.
-
-### What has NOT been implemented yet
-
-- No deliberation layer beyond what's in the provocations section (Phase 4)
-- No multi-turn analysis refinement (re-running with different sub-groups is a new session)
-- No export of analysis outputs (PDF, Word)
-- No quantitative modelling beyond the qualitative evidence base
-- No authentication or user management
-- No tests
-
----
-
-## 2026-05-21 — Local session caching
-
-### Problem
-
-All application state (chat messages, policy specification, analysis sections, progress) was held only in React state. Refreshing the page or closing and reopening the browser tab wiped everything — including completed analyses that may have taken several minutes to generate.
-
-### What was done
-
-Added localStorage-based session caching so that all meaningful state survives page refresh or close/reopen. The implementation covers three scenarios: normal state persistence, clean session reset, and graceful recovery from interrupted analyses.
+2. **Unified progressive sidebar** — the three-mode sidebar (scanning placeholder → sub-group selection cards → analysis progress stepper) was replaced with a single progressive tracker that builds up sections as the analysis proceeds. Previous steps remain visible and navigable at all stages.
 
 ### Technical decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Storage backend | `localStorage` with a single `ahl-session` key | Simplest option, no dependencies, 5–10 MB quota is more than sufficient for the ~50–100 KB of text a typical analysis produces |
-| Serialisation of `Map` | `Array.from(map.entries())` on save, `new Map(entries)` on restore | `Map` is not JSON-serialisable; entry arrays round-trip cleanly |
-| Save timing | Debounced (500ms) via a single `useEffect` watching all cached fields | Prevents thrashing during rapid streaming deltas while keeping state reasonably current |
-| Cache versioning | Integer `version` field in the cached blob | Allows discarding stale caches after schema-breaking code changes without crashes |
-| Interrupted analysis recovery | Transition `analysing` → `chatting`, mark pending/active steps as `error` | Cannot resume an HTTP stream after page reload; showing completed sections with clear error markers is the best available UX |
-| State initialisation | Lazy `useState` initialisers sourcing from cached values | Avoids a flash of empty state followed by a re-render; the first render already has the restored data |
-| Message restoration | Mount `useEffect` calling `setMessages()` | `useChat` manages its own message state and doesn't accept initial messages; `setMessages` is the only way to inject cached history |
+| Scan output destination | Artefact panel via `analysis_content` data events | Consistent with per-sub-group analysis. Keeps the chat clean — scan output is reference material, not conversational. |
+| Scan output format | Per-category tables with `[High]`/`[Moderate]`/`[Low]` badge tags | Tables give density; category grouping gives scannability. Badge tags render as colour-coded pills via the existing grounding badge infrastructure. |
+| Chat summary | Programmatic (constructed from extracted `relevance_scan` data) | No extra LLM call needed. Summary includes characteristic count and high-relevance count. |
+| Sidebar architecture | Single progressive layout replacing three conditional modes | Avoids context loss when transitioning between phases. Sub-group cards collapse but remain expandable. Scan step stays visible with a summary. |
+| Relevance badge rendering | Extend existing `renderGroundingBadges()` with `[High]`/`[Moderate]`/`[Low]` regex patterns | Reuses the same rendering pipeline as evidence grounding badges — no new components or rendering paths. |
 
-### Session cache module: `frontend/src/lib/session-cache.ts`
+### Scan output as artefact
 
-New utility module with six exports:
+**Backend** — the scan call in the orchestrator now yields `("analysis_content", {"section": "scan", "delta": ...})` instead of `("text", delta)`. After the scan completes and sub-groups are extracted, a brief text summary is yielded to the chat (e.g. "I've assessed all population characteristics against this policy. 8 rated as highly relevant — see the full assessment in the analysis panel.").
 
-- **`CachedSession`** interface — typed shape of the localStorage blob. Includes `version`, all nine durable state fields, and `analysisSections` as `[string, AnalysisSection][]` (the serialised form of the Map).
-- **`saveSession(state)`** — serialises state to JSON with Map-to-array conversion. Wrapped in try/catch to silently degrade on storage quota errors.
-- **`loadSession()`** — reads and parses from localStorage. Returns `null` on any failure: missing key, JSON parse error, version mismatch, or missing required fields.
-- **`hydrateAnalysisSections(entries)`** — reconstructs the `Map<string, AnalysisSection>` from the cached array.
-- **`fixInterruptedAnalysis(cached)`** — detects if the cached stage was `analysing` with progress steps or sections present. If so, returns adjusted values: stage set to `chatting`, any `active`/`pending` steps re-marked as `error`, `isComplete` set to `true`, and a `wasInterrupted` flag for the caller. If the cached stage was `analysing` but had no progress (e.g. the scan hadn't started), leaves the state unchanged since there's nothing to recover.
-- **`clearSession()` / `debouncedSave()`** — removes the localStorage key / wraps `saveSession` with a 500ms debounce timer.
+**Prompt** — `analysis_scan.md` output format changed from a single 36-row table to per-category tables with `### Category` headings, sorted HIGH-first within each category. Tags use title case (`[High]`, `[Moderate]`, `[Low]`).
 
-### ChatContainer changes
+**Frontend** — the artefact panel (`AnalysisView`) now appears as soon as the scan starts (split view with chat) rather than only when the full analysis chain runs. An empty scan section is created immediately when the `analysis_step scan active` event fires, so the panel and streaming dots appear before the first LLM token. The `AnalysisView` header shows a contextual subtitle for the scan section: "Initial assessment based on policy characteristics — the detailed analysis will draw on the evidence base."
 
-**State initialisation from cache**: A lazy `useState` at the top of the component calls `loadSession()` once and runs `fixInterruptedAnalysis()` on the result. All subsequent `useState` hooks source their initial values from this cached result (falling back to defaults when no cache exists). For `analysisSections` (a Map), a lazy initialiser calls `hydrateAnalysisSections()`.
+**Grounding badges** — added `[High]`/`[Moderate]`/`[Low]` patterns (matching both title-case and uppercase) to `renderGroundingBadges()`. CSS styles: `.badge-high` (orange), `.badge-moderate` (amber), `.badge-low` (grey).
 
-**Message restoration**: A mount-only `useEffect` calls `setMessages()` with the cached messages. If the analysis was interrupted, it appends a synthetic assistant message: "The previous analysis was interrupted (N of M sections completed). The completed sections are available in the analysis panel."
+**Block stripping** — `AnalysisSectionPanel` now strips `<proposed_sub_groups>` JSON blocks from rendered content, same pattern as `MessageBubble`.
 
-**Debounced save**: A single `useEffect` watches all nine cached state values and calls `debouncedSave()` on any change. A `skipSaveRef` prevents the initial hydration from immediately re-writing the same data back to localStorage.
+### Unified progressive sidebar
 
-**Session clearing**: `handleNewSession` now calls `clearSession()` as its first action, ensuring the localStorage key is removed before state is reset.
+Replaced the three-mode conditional in `SpecificationSidebar` with a single vertical layout that accumulates sections:
 
-### What is cached
+1. **CompactSpecView** — confirmed policy summary (unchanged)
+2. **Scan step** — `StepEntry` component. Active: pulsing dot + "Assessing population characteristics…". Complete: checkmark + summary text (e.g. "36 assessed, 8 high relevance") derived from `proposedSubGroups.relevance_scan`. Clickable to navigate to scan section in panel.
+3. **Sub-group section** — `SubGroupSection` component with expand/collapse. During selection: expanded with editable cards + remove buttons + "Run analysis" button pinned at bottom. During/after analysis: collapsed to "N sub-groups confirmed" with chevron toggle to expand read-only cards.
+4. **Analysis steps** — `StepEntry` entries for each sub-group and synthesis, with evidence search indicators on active steps.
+5. **Banners** — time estimate during analysis, completion banner when done.
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `stage` | `ConversationStage` | `specifying`, `analysing`, or `chatting` |
-| `messages` | `Message[]` | Full chat history from Vercel AI SDK |
-| `specMeta` | `SpecMetadata` | Policy specification sidebar state |
-| `proposedSubGroups` | `ProposedSubGroups \| null` | Sub-groups proposed by the scan call |
-| `confirmedSubGroups` | `SubGroup[] \| null` | Analyst-confirmed sub-groups |
-| `analysisProgress` | `AnalysisProgress` | Stepper state (step statuses) |
-| `analysisSections` | `Map → [key, value][]` | Serialised as entry array for JSON compatibility |
-| `activeSection` | `string \| null` | Currently viewed analysis section |
-| `evidenceSearchCount` | `number` | Total evidence searches performed |
+`AnalysisProgressPanel` deleted — its stepper logic absorbed into the sidebar via the reusable `StepEntry` component.
 
-**Not cached** (transient streaming state): `activeEvidenceSearch`, `streamingSection`, `isLoading`, `input`, `data`, `lastProcessedDataIdx`.
+### Terminology changes
+
+- "Scanning modifier relevance" → "Identifying affected populations" (sidebar, stepper)
+- "modifier" removed from all user-facing text — replaced with "population characteristic" or "population group"
+- Auto-sent trigger message updated to "Please assess population relevance and propose sub-groups"
+
+### Backend logging
+
+Added structured logging to the scan path in `orchestrator.py`: scan start, LLM call (with model), first token received, stream completion (with chunk count), sub-group extraction results (with counts), and a warning when extraction fails.
 
 ### Files created
 
-- `frontend/src/lib/session-cache.ts` — session cache utility module
+None.
 
 ### Files modified
 
-- `frontend/src/components/chat/ChatContainer.tsx` — cache restoration on mount, debounced save effect, `clearSession()` in `handleNewSession`
+**Backend:**
+- `src/food_policy_impact_tool/llm/orchestrator.py` — scan output redirected from text to `analysis_content`, chat summary generation, structured logging
+- `src/food_policy_impact_tool/llm/prompts/analysis_scan.md` — output format changed to per-category tables with badge tags
+
+**Frontend:**
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — major rewrite: unified progressive sidebar with `StepEntry`, `SubGroupSection`, `SubGroupCard` local components
+- `frontend/src/components/chat/ChatContainer.tsx` — scan section handling (immediate creation on step active, auto-select), `showAnalysisView` logic (triggered by section existence), split view during scan/selection phase, terminology updates
+- `frontend/src/components/analysis/AnalysisView.tsx` — contextual subtitle for scan section header
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — `<proposed_sub_groups>` block stripping
+- `frontend/src/lib/grounding-badges.ts` — `[High]`/`[Moderate]`/`[Low]` badge patterns (title-case and uppercase)
+- `frontend/src/app/globals.css` — `.badge-high`, `.badge-moderate`, `.badge-low` styles
+
+### Files deleted
+
+- `frontend/src/components/analysis/AnalysisProgressPanel.tsx` — logic absorbed into `SpecificationSidebar`
 
 ### What has NOT been implemented yet
 
@@ -676,5 +594,6 @@ New utility module with six exports:
 - No multi-turn analysis refinement (re-running with different sub-groups is a new session)
 - No export of analysis outputs (PDF, Word)
 - No quantitative modelling beyond the qualitative evidence base
+- No persistence of analyses across sessions
 - No authentication or user management
 - No tests

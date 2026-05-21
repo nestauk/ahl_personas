@@ -177,13 +177,19 @@ export function ChatContainer() {
           } else {
             const subgroups = confirmedSubGroupsRef.current;
             let name = sectionId;
-            if (sectionId === "synthesis") {
+            if (sectionId === "scan") {
+              name = "Population Relevance Assessment";
+            } else if (sectionId === "synthesis") {
               name = "Equity synthesis and provocations";
             } else if (sectionId.startsWith("sg_") && subgroups) {
               const idx = parseInt(sectionId.slice(3), 10);
               name = subgroups[idx]?.name || `Sub-group ${idx + 1}`;
             }
             next.set(sectionId, { id: sectionId, name, content: delta });
+            if (sectionId === "scan") {
+              setActiveSection("scan");
+              setStreamingSection("scan");
+            }
           }
           return next;
         });
@@ -191,17 +197,30 @@ export function ChatContainer() {
 
       if (eventType === "analysis_step") {
         const step = item.step as AnalysisStep["step"];
-        if (step === "scan") continue;
-
         const status = item.status as AnalysisStep["status"];
         const index = item.index as number | undefined;
         const name = item.name as string | undefined;
 
         if (status === "active") {
-          const sectionId =
-            step === "synthesis" ? "synthesis" : `sg_${index ?? 0}`;
-          setActiveSection(sectionId);
-          setStreamingSection(sectionId);
+          if (step === "scan") {
+            setAnalysisSections((prev) => {
+              if (prev.has("scan")) return prev;
+              const next = new Map(prev);
+              next.set("scan", {
+                id: "scan",
+                name: "Population Relevance Assessment",
+                content: "",
+              });
+              return next;
+            });
+            setActiveSection("scan");
+            setStreamingSection("scan");
+          } else {
+            const sectionId =
+              step === "synthesis" ? "synthesis" : `sg_${index ?? 0}`;
+            setActiveSection(sectionId);
+            setStreamingSection(sectionId);
+          }
         }
 
         if (status === "complete" || status === "error") {
@@ -368,7 +387,7 @@ export function ChatContainer() {
       append({
         role: "user",
         content:
-          "I've confirmed the policy specification. Please scan the modifier relevance and propose sub-groups for equity impact analysis.",
+          "I've confirmed the policy specification. Please assess population relevance and propose sub-groups for equity impact analysis.",
       });
     }, 100);
   }, [setMessages, append]);
@@ -433,10 +452,11 @@ export function ChatContainer() {
         (s.step === "subgroup" || s.step === "synthesis") &&
         (s.status === "active" || s.status === "complete" || s.status === "error"),
     );
-  const showAnalysisView =
-    (stage === "analysing" && analysisRunning) ||
-    (stage === "chatting" && analysisSections.size > 0);
-  const showSplitView = stage === "chatting" && analysisSections.size > 0;
+  const showAnalysisView = analysisSections.size > 0;
+  const scanOrSelectionPhase =
+    stage === "analysing" && analysisSections.size > 0 && !analysisRunning;
+  const showSplitView =
+    (stage === "chatting" && analysisSections.size > 0) || scanOrSelectionPhase;
 
   return (
     <div className="flex h-screen flex-col">
