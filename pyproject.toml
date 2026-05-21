@@ -10,6 +10,8 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "openai",
+    "qdrant-client",
+    "pymupdf",
 ]
 
 [project.optional-dependencies]
