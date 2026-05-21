@@ -67,7 +67,8 @@ The JSON must follow this exact structure:
     "geography": {"values": [...], "source": "...", "rationale": "...or null"}
   },
   "active_characteristic": "key_of_characteristic_you_are_currently_asking_about_or_null",
-  "policy_name": "short name for this policy or null"
+  "policy_name": "short name for this policy or null",
+  "policy_description": "1-2 sentence plain-language summary of what the policy does, or null"
 }
 </policy_spec>
 ```
@@ -78,6 +79,7 @@ Rules for the `<policy_spec>` block:
 - `rationale` is required when `source` is `"assumed"`, null otherwise.
 - `active_characteristic` should be the taxonomy key (e.g. `"population"`, `"delivery_channel"`) of the characteristic you are currently asking the analyst about. Set to `null` if you are presenting the final specification or not asking about a specific characteristic.
 - `policy_name` should be a short descriptive name for the policy once you understand it (e.g. "Healthy Start voucher expansion"). Set to `null` until you have enough context.
+- `policy_description` should be a 1–2 sentence plain-language summary of the policy's mechanism and intent (e.g. "Expand the Healthy Start voucher scheme to provide means-tested vouchers for healthier food purchases to lower-income households and young families."). Update it as your understanding develops. Set to `null` until you have enough context.
 - Always emit all six characteristics, even if most are still `"empty"`.
 
 ## Presenting the final specification
@@ -122,6 +124,7 @@ Then include the final `<policy_spec>` block with all sources updated.
     "geography": {"values": [], "source": "empty", "rationale": null}
   },
   "active_characteristic": "in_scope_businesses",
-  "policy_name": "Healthy Start voucher expansion"
+  "policy_name": "Healthy Start voucher expansion",
+  "policy_description": "Expand the Healthy Start voucher scheme to provide means-tested vouchers for healthier food purchases to lower-income households and young families."
 }
 </policy_spec>

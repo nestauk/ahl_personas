@@ -19,6 +19,7 @@ export interface SpecMetadata {
   spec: PolicySpecification;
   active_characteristic?: string | null;
   policy_name?: string | null;
+  policy_description?: string | null;
 }
 
 export type ConversationStage = "specifying" | "chatting";

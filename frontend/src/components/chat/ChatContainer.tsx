@@ -39,6 +39,7 @@ export function ChatContainer() {
     spec: { ...EMPTY_SPEC },
     active_characteristic: null,
     policy_name: null,
+    policy_description: null,
   });
 
   const specMetaRef = useRef(specMeta);
@@ -81,6 +82,7 @@ export function ChatContainer() {
       spec: { ...EMPTY_SPEC },
       active_characteristic: null,
       policy_name: null,
+      policy_description: null,
     });
     setData(undefined);
   }, [setMessages, setData]);
@@ -104,6 +106,9 @@ export function ChatContainer() {
       },
     ]);
 
+    // Phase 3 will change this to "analysing" and trigger the equity
+    // impact analysis pipeline. The stage system, spec state, and
+    // confirmation message format are all designed to support this.
     setStage("chatting");
   }, [setMessages]);
 
@@ -154,6 +159,7 @@ export function ChatContainer() {
           stage={stage}
           activeCharacteristic={specMeta.active_characteristic}
           policyName={specMeta.policy_name}
+          policyDescription={specMeta.policy_description}
           onProceed={handleProceed}
         />
       </div>

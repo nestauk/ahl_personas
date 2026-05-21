@@ -30,6 +30,7 @@ class SpecMetadata(BaseModel):
     spec: PolicySpecification = PolicySpecification()
     active_characteristic: str | None = None
     policy_name: str | None = None
+    policy_description: str | None = None
 
 
 class ChatMessage(BaseModel):
