@@ -313,3 +313,199 @@ This dual format ensures Phase 3 can reliably extract the finalised specificatio
 - No structured JSON extraction for backend consumption — sidebar state and markdown table are sufficient for now
 - No authentication or user management
 - No tests
+
+---
+
+## 2026-05-21 — Phase 3: Equity Impact Analysis Engine
+
+### What was done
+
+Implemented the equity impact analysis engine — the core value of the tool. When the analyst finishes specifying a policy (Phase 2) and clicks "Proceed to analysis", the tool now:
+
+1. Scans every modifier in the personas framework against the policy specification, rating relevance as HIGH / MODERATE / LOW
+2. Proposes 4–6 population sub-groups (combinations of modifiers) with rationale
+3. The analyst confirms, removes, or requests additions via chat
+4. Runs a full equity impact analysis: per-sub-group impacts grounded in the evidence base via agentic tool calling, a cross-cutting equity assessment, and provocations
+5. Transitions to follow-up chat
+
+The analysis runs as a **chain of focused LLM calls** (not one monolithic call), with **agentic RAG** via OpenAI function calling for evidence retrieval during each per-sub-group analysis.
+
+### Architecture: chained analysis with agentic RAG
+
+The analysis is structured as a multi-call chain managed by the orchestrator, streamed as a single long-lived HTTP response:
+
+| Call | Purpose | Evidence | Tools |
+|------|---------|----------|-------|
+| Call 1 — Modifier scan | Relevance scan + sub-group proposal | None | None |
+| Calls 2–N — Per-sub-group | Detailed impact analysis for one sub-group | Agentic (tool calls) | `search_evidence` |
+| Final call — Synthesis | Equity assessment + provocations | None (synthesises from per-sub-group text) | None |
+
+**Why chained, not monolithic**: A single call would need the full personas framework, all evidence across multiple sub-groups, the policy specification, theoretical lenses, and output format instructions simultaneously. Even if it fits the context window, reasoning quality degrades when the model juggles too many things at once, and evidence retrieval cannot be targeted per sub-group.
+
+**Why agentic RAG, not pre-retrieval**: Each sub-group analysis needs evidence on multiple dimensions (financial impact, food access, shopping behaviour, cooking capacity, health outcomes). The LLM knows what it needs as it reasons and can formulate targeted queries — 3–6 searches per sub-group. If a search returns nothing relevant, the LLM flags the area as `[Gap]` rather than confabulating evidence. This avoids the "dump 30 chunks into context and hope the LLM uses the right ones" problem.
+
+**Why single streaming response**: The frontend sees one HTTP stream with interleaved `2:` data messages for progress events. No orchestration loop, no state machine on the frontend, no error handling for partial failures across separate requests. The entire analysis is one logical assistant message.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Analysis architecture | Chained multi-call (scan → per-sub-group × N → synthesis) | Targeted evidence per sub-group, deeper reasoning per call, manageable context windows, incremental streaming |
+| Evidence retrieval | Agentic RAG via OpenAI function calling (`search_evidence` tool) | LLM formulates targeted queries as it reasons; naturally handles evidence gaps; extensible as corpus grows |
+| HTTP model | Single long-lived streaming response for the full chain | Frontend simplicity — one stream, one message. Data stream events interleaved for progress. No timeout concerns on localhost |
+| Sub-group selection UI | Sidebar cards with remove buttons; additions via chat | A full modifier picker (6 categories, 30+ modifiers) would be substantial UI work. Chat-based additions trigger a lightweight re-scan |
+| Evidence grounding tags | Strict regex in MessageBubble → styled `<span>` via `rehype-raw` | Only four known tag patterns are matched and converted to HTML spans. All other content passes through as-is. Prevents arbitrary HTML injection from LLM output |
+| Analysis output rendering | Styled markdown with prominent headers + sidebar stepper for navigation | Collapsible sections were considered but deferred — the content-splitting during streaming is genuinely hard and a significant source of bugs. Sidebar jump-to-section gives 80% of the UX benefit |
+| Error handling | Per-sub-group try/except, chain continues on failure | A failed sub-group emits an error banner and error status in the stepper, then the next sub-group proceeds. Synthesis receives whatever analyses completed |
+| Retry logic | Exponential backoff on transient OpenAI errors (429, 500, 503), up to 2 retries per call | Long chains are more likely to hit rate limits or transient failures |
+
+### Three prompt templates
+
+Instead of one monolithic prompt, three focused templates that each do one thing well:
+
+**`analysis_scan.md`** (Call 1) — The largest prompt. Contains the full personas framework (6 categories, 36+ modifiers, each with example material features), the policy-modifier heuristic mapping (policy lever × modifier interactions, delivery channel × modifier interactions, in-scope business × modifier interactions), the two-part scan process (modifier relevance scan → sub-group composition), priority modifier list, ethnicity guidance, and the `<proposed_sub_groups>` structured output requirement. Placeholder: `{{POLICY_SPECIFICATION}}`.
+
+**`analysis_subgroup.md`** (Calls 2–N) — Focused single-sub-group analysis. Contains the four theoretical reasoning lenses (social determinants, structural determinants, commercial determinants, intersectionality) as reasoning instructions — the LLM applies them without naming them in the output. Contains evidence grounding requirements with all four levels (`[Evidence: Source, Year]`, `[Analogical: Source, Year]`, `[Reasoning]`, `[Gap]`), search strategy guidance (3–6 targeted searches per sub-group), output structure (who/how/benefits-harms/impact dimensions/uncertainties), and ethical guardrails. Placeholders: `{{POLICY_SPECIFICATION}}`, `{{SUB_GROUP_NAME}}`, `{{SUB_GROUP_MODIFIERS}}`.
+
+**`analysis_synthesis.md`** (Final call) — Cross-cutting equity assessment and provocations. The four theoretical lenses are more prominent here for cross-cutting analysis. Output structure covers equity assessment (who benefits most/least, inequality direction, distributional effects, implementation burden differences) and provocations (evidence gaps, assumption risks, equity tensions, unintended consequences, implementation risks, design improvements). Placeholders: `{{POLICY_SPECIFICATION}}`, `{{SUB_GROUP_ANALYSES}}`.
+
+### Orchestrator changes
+
+Major additions to `llm/orchestrator.py`:
+
+- **`stream_analysis_chain()`** — top-level async generator managing the multi-call flow. Iterates over confirmed sub-groups, runs each analysis with error handling, then runs synthesis. Emits data stream events at each transition.
+- **`_stream_subgroup_with_tools()`** — per-sub-group call with OpenAI function calling loop. Streams text, collects tool call fragments, executes `search_evidence` via the existing `HybridRetriever`, feeds results back, continues until `finish_reason == "stop"`.
+- **`_stream_synthesis()`** — final synthesis call (no tools). Receives all per-sub-group analyses as text input.
+- **`_format_tool_evidence()`** — formats retrieval results as tool call responses. When no results found, returns an explicit instruction to flag as `[Gap]` — this is in the tool response itself, not just the system prompt, ensuring the LLM doesn't confabulate.
+- **`_extract_subgroups_from_response()`** — parses `<proposed_sub_groups>` JSON block from scan output. Same graceful degradation pattern as Phase 2's `<policy_spec>` extraction.
+- **`_extract_policy_spec_from_history()`** — scans conversation history backwards for the `<policy_spec>` block that contains the confirmed specification from Phase 2.
+- **`_stream_with_retry()`** — wraps `client.chat.completions.create` with exponential backoff retry on transient errors.
+- Updated `stream_response()` to handle `analysing` stage: routes to scan call (no confirmed sub-groups) or delegates to `stream_analysis_chain()` (with confirmed sub-groups).
+
+### Data stream events
+
+The orchestrator emits typed `2:` data messages that the frontend parses to drive the progress panel and evidence indicator:
+
+| Event | When | Frontend action |
+|-------|------|-----------------|
+| `{ type: "analysis_step", step: "scan", status: "active" }` | Call 1 starts | Show scanning state in sidebar |
+| `{ type: "analysis_step", step: "scan", status: "complete" }` | Call 1 finishes | Mark scan complete |
+| `{ type: "proposed_sub_groups", subgroups: [...], relevance_scan: {...} }` | Extracted from scan output | Populate sub-group selection cards in sidebar |
+| `{ type: "analysis_step", step: "subgroup", index, name, status: "active" }` | Sub-group call starts | Mark step active in stepper |
+| `{ type: "evidence_search", query: "..." }` | Tool call made | Show evidence search indicator |
+| `{ type: "analysis_step", step: "subgroup", index, status: "complete" }` | Sub-group call finishes | Mark complete, clear evidence indicator |
+| `{ type: "analysis_step", step: "subgroup", index, status: "error" }` | Sub-group call failed | Mark error in stepper, chain continues |
+| `{ type: "analysis_step", step: "synthesis", status: "active"/"complete" }` | Synthesis call | Update stepper |
+| `{ type: "stage_transition", stage: "chatting" }` | Chain done | Transition to chatting |
+
+### Error handling
+
+Three failure modes are handled explicitly:
+
+1. **Per-sub-group call failure**: Wrapped in try/except. Emits a visible markdown error banner (`> **Analysis error**: ...`), emits an `"error"` status data event for the stepper, and continues with the next sub-group. The synthesis call receives whatever analyses completed and notes which are missing.
+
+2. **Malformed `<proposed_sub_groups>` JSON**: Same pattern as Phase 2 spec extraction — log warning, skip data emission, frontend retains previous state. The analyst can still see the proposed sub-groups in the chat markdown and respond conversationally.
+
+3. **`search_evidence` returns no results**: The tool response explicitly instructs the LLM to flag as `[Gap]` and reason from material constraints if possible as `[Reasoning]`. This instruction is in the tool response content, not just the system prompt.
+
+4. **Transient OpenAI API errors**: Exponential backoff retry (2^attempt seconds) on status codes 429, 500, 503, up to 2 retries per call. Exhausted retries fall through to the per-sub-group failure handler.
+
+### Frontend: ChatContainer state management
+
+New state in `ChatContainer`:
+- `proposedSubGroups` — extracted from `proposed_sub_groups` data stream event, like `specMeta` in Phase 2
+- `confirmedSubGroups` — initially set from proposed, modified by analyst (remove via sidebar button). Sent in `useChat` body when "Run analysis" is clicked
+- `analysisProgress` — tracks all steps with their statuses, driven by `analysis_step` data events
+- `activeEvidenceSearch` — current search query string (or null), driven by `evidence_search` events, cleared when a new step starts
+
+`handleProceed` now transitions to `"analysing"` and auto-sends a trigger message via `append()` to initiate the scan call.
+
+`handleRunAnalysis` initialises the progress stepper with the confirmed sub-group names and sends the analysis trigger message.
+
+Data stream parsing handles all event types — `analysis_step`, `evidence_search`, `stage_transition`, `proposed_sub_groups` — in addition to the existing `spec` metadata parsing.
+
+### Frontend: sidebar three-mode design
+
+The `SpecificationSidebar` now has three modes during the `analysing` stage:
+
+1. **Scanning** (no proposed sub-groups yet): Compact policy spec view at top, "Scanning modifier relevance…" message below.
+
+2. **Sub-group selection** (proposed but not confirmed): Compact policy spec, sub-group cards with category-coloured modifier pills and remove buttons, rationale text, and a "Run analysis (N sub-groups)" button. No modifier picker — adding sub-groups is via chat.
+
+3. **Analysis running/complete**: Compact policy spec, `AnalysisProgressPanel` component (vertical stepper).
+
+### Frontend: new components
+
+**`AnalysisProgressPanel`** — vertical stepper in the sidebar showing each analysis step with four visual states:
+- **Pending**: greyed circle + muted text
+- **Active**: accent-coloured circle with CSS pulse animation + bold text
+- **Complete**: checkmark circle, clickable — scrolls to the relevant `h2`/`h3` heading in the chat via `document.querySelectorAll` text matching
+- **Error**: warning icon + red text
+
+Includes time estimate banner ("Analysing N sub-groups — typically takes 1–2 minutes") and completion state ("Analysis complete — ask follow-up questions below").
+
+**`EvidenceSearchIndicator`** — small inline component shown above the chat input during `search_evidence` tool calls. Shows a search icon + the query text in muted italic with a CSS shimmer animation. Disappears when `activeEvidenceSearch` returns to null.
+
+### Frontend: evidence grounding badges
+
+`MessageBubble` now applies strict regex pre-processing to convert the four grounding tag patterns into styled `<span>` elements:
+
+- `[Evidence: Source Name, Year]` → `<span class="badge-evidence">Evidence: Source Name, Year</span>` (teal/green pill)
+- `[Analogical: Source Name, Year]` → `<span class="badge-analogical">...</span>` (amber pill)
+- `[Reasoning]` → `<span class="badge-reasoning">Reasoning</span>` (grey pill)
+- `[Gap]` → `<span class="badge-gap">Gap</span>` (red/pink pill)
+
+Only these four patterns are matched — no arbitrary HTML from LLM output passes through. The spans are rendered via `rehype-raw` (new dependency).
+
+`MessageBubble` also now strips `<proposed_sub_groups>` blocks from rendered content, same pattern as `<policy_spec>` stripping.
+
+### CSS additions
+
+- **Grounding badge styles**: four pill variants (teal, amber, grey, red/pink) with inline display and appropriate borders
+- **Analysis section spacing**: `h2` elements in `.prose` get extra top margin and a top border for visual separation between sub-group sections
+- **Stepper pulse animation**: `@keyframes stepper-pulse` on the active step circle
+- **Evidence search shimmer**: `@keyframes evidence-shimmer` — subtle opacity pulse on the search indicator
+
+### Files created
+
+**Backend (3 prompt templates):**
+- `src/food_policy_impact_tool/llm/prompts/analysis_scan.md`
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md`
+- `src/food_policy_impact_tool/llm/prompts/analysis_synthesis.md`
+
+**Frontend (2 new components):**
+- `frontend/src/components/analysis/AnalysisProgressPanel.tsx`
+- `frontend/src/components/chat/EvidenceSearchIndicator.tsx`
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/models/chat.py` — added `"analysing"` to `ConversationStage`, added `confirmed_subgroups` field to `ChatRequest`
+- `src/food_policy_impact_tool/llm/orchestrator.py` — major rewrite: chained analysis flow, tool call loop, retry logic, data stream event emission, sub-group/spec extraction from history, error handling
+- `src/food_policy_impact_tool/api/routes/chat.py` — routes `analysing` stage to scan or analysis chain, passes retriever and confirmed sub-groups to orchestrator
+
+**Frontend:**
+- `frontend/src/lib/types.ts` — added `SubGroup`, `ProposedSubGroups`, `AnalysisProgress`, `AnalysisStep`, all data stream event interfaces, helper functions
+- `frontend/src/components/chat/ChatContainer.tsx` — significant: analysis state management, data stream parsing for all event types, sub-group editing callbacks, `handleRunAnalysis`, `handleProceed` now triggers analysing stage
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — significant: three-mode sidebar (sub-group selection, progress panel, scanning state), compact spec view, sub-group cards with modifier pills and remove buttons
+- `frontend/src/components/chat/MessageBubble.tsx` — `<proposed_sub_groups>` stripping, grounding badge regex pre-processing, `rehype-raw` integration
+- `frontend/src/components/ui/Header.tsx` — added `analysing: "Analysing equity impact"` stage label
+- `frontend/src/app/globals.css` — grounding badge styles, analysis section spacing, stepper pulse animation, evidence search shimmer
+
+**Dependencies:**
+- `frontend/package.json` — added `rehype-raw`
+
+### Design decisions deferred
+
+- **Collapsible sub-group sections**: Dropped for the prototype. The content-splitting during streaming is genuinely hard — tracking character offsets, correlating with data events, splitting into separate components in real-time. Styled markdown headers + sidebar jump-to-section gives most of the UX benefit. Revisit if analysts find the long output unmanageable.
+- **Modifier picker for sub-group additions**: A usable UI for composing custom modifier combinations from 6 categories and 30+ options is substantial work. For the prototype, the analyst types adjustments in the chat ("also add a sub-group for rural deprived + retired couple") and the backend re-runs a lightweight scan call.
+
+### What has NOT been implemented yet
+
+- No deliberation layer beyond what's in the provocations section (Phase 4)
+- No multi-turn analysis refinement (re-running with different sub-groups is a new session)
+- No export of analysis outputs (PDF, Word)
+- No quantitative modelling beyond the qualitative evidence base
+- No persistence of analyses across sessions
+- No authentication or user management
+- No tests

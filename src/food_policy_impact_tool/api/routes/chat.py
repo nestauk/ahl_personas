@@ -33,12 +33,13 @@ def _format_finish_message() -> str:
 
 @router.post("/chat")
 async def chat(request: ChatRequest) -> StreamingResponse:
-    """Accept a chat request and stream back an LLM response using the AI SDK data stream protocol.
+    """Accept a chat request and stream back an LLM response.
 
     Behaviour depends on the conversation stage:
-    - 'specifying': Uses the Socratic prompt, skips evidence retrieval,
-      extracts policy specification state from the response.
-    - 'chatting': Uses the general system prompt with evidence retrieval.
+    - 'specifying': Socratic prompt, no evidence retrieval, spec extraction.
+    - 'analysing': Scan call (no confirmed_subgroups) or full analysis chain
+      (with confirmed_subgroups and agentic evidence retrieval via tool calls).
+    - 'chatting': General system prompt with evidence retrieval.
     """
     user_messages = [m for m in request.messages if m.role == "user"]
     if not user_messages:
@@ -54,17 +55,22 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         )
 
     evidence = []
+    retriever = None
+
     if request.stage == "chatting":
         settings = get_settings()
         retriever = get_retriever()
         latest_query = user_messages[-1].content
         evidence = retriever.retrieve(latest_query, top_k=settings.retrieval_top_k)
+    elif request.stage == "analysing" and request.confirmed_subgroups:
+        retriever = get_retriever()
 
     logger.info(
-        "Chat request: stage=%s, %d messages, %d evidence chunks",
+        "Chat request: stage=%s, %d messages, %d evidence chunks, subgroups=%s",
         request.stage,
         len(request.messages),
         len(evidence),
+        "confirmed" if request.confirmed_subgroups else "none",
     )
 
     async def generate():
@@ -73,6 +79,8 @@ async def chat(request: ChatRequest) -> StreamingResponse:
             messages=request.messages,
             evidence=evidence if evidence else None,
             spec_state=request.spec_state,
+            confirmed_subgroups=request.confirmed_subgroups,
+            retriever=retriever,
         ):
             if part_type == "text":
                 yield _format_text_part(content)

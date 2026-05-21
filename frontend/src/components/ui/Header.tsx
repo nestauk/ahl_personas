@@ -10,6 +10,7 @@ interface HeaderProps {
 
 const STAGE_LABELS: Record<ConversationStage, string> = {
   specifying: "Specifying policy",
+  analysing: "Analysing equity impact",
   chatting: "Ready for analysis",
 };
 

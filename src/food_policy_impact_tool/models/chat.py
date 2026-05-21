@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-ConversationStage = Literal["specifying", "chatting"]
+ConversationStage = Literal["specifying", "analysing", "chatting"]
 
 
 class SpecValue(BaseModel):
@@ -46,3 +46,4 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     stage: ConversationStage = "specifying"
     spec_state: dict[str, Any] | None = None
+    confirmed_subgroups: list[dict[str, Any]] | None = None

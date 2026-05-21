@@ -22,7 +22,75 @@ export interface SpecMetadata {
   policy_description?: string | null;
 }
 
-export type ConversationStage = "specifying" | "chatting";
+export type ConversationStage = "specifying" | "analysing" | "chatting";
+
+// --- Sub-group types ---
+
+export interface SubGroupModifier {
+  category: string;
+  value: string;
+}
+
+export interface SubGroup {
+  id: string;
+  name: string;
+  modifiers: SubGroupModifier[];
+  rationale: string;
+  relevance_drivers: string[];
+}
+
+export interface ProposedSubGroups {
+  subgroups: SubGroup[];
+  relevance_scan: Record<string, string>;
+}
+
+// --- Analysis progress types ---
+
+export type AnalysisStepStatus = "pending" | "active" | "complete" | "error";
+
+export interface AnalysisStep {
+  step: "scan" | "subgroup" | "synthesis";
+  index?: number;
+  name?: string;
+  status: AnalysisStepStatus;
+}
+
+export interface AnalysisProgress {
+  steps: AnalysisStep[];
+  isComplete: boolean;
+}
+
+// --- Data stream event types ---
+
+export interface AnalysisStepEvent {
+  type: "analysis_step";
+  step: "scan" | "subgroup" | "synthesis";
+  index?: number;
+  name?: string;
+  status: "active" | "complete" | "error";
+}
+
+export interface EvidenceSearchEvent {
+  type: "evidence_search";
+  query: string;
+}
+
+export interface StageTransitionEvent {
+  type: "stage_transition";
+  stage: ConversationStage;
+}
+
+export interface ProposedSubGroupsEvent extends ProposedSubGroups {
+  type: "proposed_sub_groups";
+}
+
+export type AnalysisDataEvent =
+  | AnalysisStepEvent
+  | EvidenceSearchEvent
+  | StageTransitionEvent
+  | ProposedSubGroupsEvent;
+
+// --- Taxonomy ---
 
 export const TAXONOMY: Record<
   keyof PolicySpecification,
@@ -107,4 +175,8 @@ export function createEmptySpecMetadata(): SpecMetadata {
     active_characteristic: null,
     policy_name: null,
   };
+}
+
+export function createEmptyAnalysisProgress(): AnalysisProgress {
+  return { steps: [], isComplete: false };
 }
