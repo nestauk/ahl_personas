@@ -27,7 +27,7 @@ export function ChatInput({
   };
 
   return (
-    <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-4">
+    <div className="px-6 py-4">
       <form
         onSubmit={onSubmit}
         className="mx-auto flex max-w-3xl items-end gap-3"

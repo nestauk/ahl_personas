@@ -7,8 +7,12 @@
   --color-text: #1c1917;
   --color-text-muted: #78716c;
   --color-accent: #1d4ed8;
+  --color-accent-light: #eff6ff;
   --color-user-bg: #eff6ff;
   --color-user-border: #bfdbfe;
+  --color-assumed: #92400e;
+  --color-assumed-border: #fde68a;
+  --color-unspecified: #9ca3af;
 }
 
 body {
@@ -97,4 +101,23 @@ body {
   border: none;
   border-top: 1px solid var(--color-border);
   margin: 1em 0;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75em;
+  font-size: 0.875rem;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.prose th {
+  background: var(--color-bg);
+  font-weight: 600;
 }

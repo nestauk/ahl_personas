@@ -2,6 +2,13 @@
 
 import type { Message } from "ai";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const SPEC_BLOCK_REGEX = /\s*<policy_spec>[\s\S]*?<\/policy_spec>\s*/g;
+
+function stripSpecBlocks(content: string): string {
+  return content.replace(SPEC_BLOCK_REGEX, "").trimEnd();
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -9,6 +16,9 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === "user";
+  const displayContent = isUser
+    ? message.content
+    : stripSpecBlocks(message.content);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -20,10 +30,12 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         }`}
       >
         {isUser ? (
-          <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          <p className="leading-relaxed whitespace-pre-wrap">
+            {displayContent}
+          </p>
         ) : (
           <div className="prose max-w-none">
-            <Markdown>{message.content}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{displayContent}</Markdown>
           </div>
         )}
       </div>

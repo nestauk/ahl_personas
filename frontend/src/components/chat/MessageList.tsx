@@ -2,14 +2,23 @@
 
 import type { Message } from "ai";
 import { useEffect, useRef } from "react";
+import type { ConversationStage } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
+import { PolicyCards } from "./PolicyCards";
 
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
+  stage: ConversationStage;
+  onSelectPolicy: (description: string) => void;
 }
 
-export function MessageList({ messages, isLoading }: MessageListProps) {
+export function MessageList({
+  messages,
+  isLoading,
+  stage,
+  onSelectPolicy,
+}: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,16 +27,17 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="max-w-md text-center">
+      <div className="flex flex-1 items-center justify-center overflow-y-auto">
+        <div className="max-w-lg px-6 text-center">
           <h2 className="mb-2 text-lg font-medium text-[var(--color-text)]">
-            Welcome
+            Policy Equity Impact Analysis
           </h2>
-          <p className="text-sm leading-relaxed text-[var(--color-text-muted)]">
-            Ask a question about food environment policies and their potential
-            impact on different population groups. Responses are grounded in a
-            curated evidence base of qualitative research.
+          <p className="mb-6 text-sm leading-relaxed text-[var(--color-text-muted)]">
+            Describe a food environment policy you&apos;d like to analyse for
+            equity impact. This can be a rough idea — I&apos;ll ask some
+            questions to clarify the details.
           </p>
+          <PolicyCards onSelectPolicy={onSelectPolicy} />
         </div>
       </div>
     );

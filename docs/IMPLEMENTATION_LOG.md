@@ -194,3 +194,122 @@ Design: muted stone/warm-grey palette, generous whitespace, professional feel ap
 - No authentication or user management
 - No session persistence across page refreshes
 - No tests
+
+---
+
+## 2026-05-21 — Phase 2: Socratic Policy Specification
+
+### What was done
+
+Implemented the Socratic policy specification stage: a conversational flow that takes a loosely defined food environment policy from an analyst and produces a structured specification mapped to the policy characteristics taxonomy. This specification becomes the input to the equity impact analysis in Phase 3.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Streaming protocol | AI SDK data stream protocol (`x-vercel-ai-data-stream: v1`) | Enables sending structured specification state alongside streamed text. Backend emits `0:` text parts, `2:` data parts, `e:` finish step, `d:` finish message. Frontend receives spec data via `useChat`'s `data` property. |
+| Specification extraction | Option A — embedded `<policy_spec>` JSON block in LLM response | LLM appends a `<policy_spec>` JSON block at the end of each response. Backend buffers the response, extracts and validates the block, then emits it as a data stream part. Frontend strips the block from rendered message content. |
+| Stage tracking | Client-side, sent with each request | Matches the stateless architecture — no session persistence needed. `stage` field on `ChatRequest` determines prompt selection and whether evidence is retrieved. |
+| Stage transitions | Analyst-triggered via "Proceed to analysis" button | No automatic detection of specification completeness. The analyst decides when the specification is sufficient. Button click inserts a client-generated confirmation message with both human-readable markdown table and a `<policy_spec>` JSON block for Phase 3 parsability. |
+| Sidebar | Read-only, populated by LLM extraction | Reduces complexity. Values come exclusively from the Socratic conversation flow. |
+| Spec extraction error handling | Graceful degradation — log and skip | If `<policy_spec>` extraction fails (malformed JSON, missing tags), no spec update is emitted. Sidebar retains previous state. Never crashes the request. |
+
+### Socratic system prompt
+
+`llm/prompts/socratic.md` — a policy specification analyst prompt that:
+- Encodes the full six-characteristic taxonomy (policy lever, in-scope businesses, business size, delivery channel, population, geography) with all options
+- Instructs the LLM to identify 2-3 most ambiguous characteristics and ask 1-2 targeted questions per exchange (not a checklist)
+- Challenges on specification clarity, accepts "I don't know" as valid
+- Requires a `<policy_spec>` JSON block at the end of every response with current spec state, source attribution (analyst/assumed/unspecified/empty), assumption rationale, and `active_characteristic` for taxonomy hint display
+- Includes one worked example (Healthy Start voucher expansion) demonstrating the right tone and depth
+- Does NOT use the evidence base — evidence comes in Phase 3
+- Has a `{{CURRENT_SPEC_STATE}}` placeholder injected at runtime with the current sidebar state
+
+### Conversation stage management
+
+Two stages implemented in the orchestrator:
+- `specifying` — Socratic flow active. Uses `socratic.md` system prompt. No evidence retrieval. Spec extraction active.
+- `chatting` — Post-specification general conversation. Uses Phase 1 `system.md` prompt. Evidence retrieval active.
+
+Stage is sent by the frontend with each request. The orchestrator selects the prompt and behaviour based on it. Extensible for Phase 3 (`analysing`) and Phase 4 (`deliberating`) via the `ConversationStage` type alias.
+
+### Data stream protocol implementation
+
+Backend emits lines in the AI SDK v4 data stream format:
+- `0:"json escaped text"\n` for text deltas (streamed token by token)
+- `2:[{spec_metadata}]\n` for specification state (emitted once after stream completes)
+- `e:{finishReason, usage, isContinued}\n` for step completion
+- `d:{finishReason, usage}\n` for message completion (must be last)
+
+Response includes `x-vercel-ai-data-stream: v1` header and `text/plain; charset=utf-8` content type.
+
+### Progressive specification sidebar
+
+Right-side panel (`SpecificationSidebar.tsx` + `SpecificationRow.tsx`) showing all six taxonomy characteristics:
+- Each row shows one of four visual states: **empty** (greyed out), **analyst-provided** (solid styling), **assumed** (italic amber with rationale tooltip), **unspecified** (TBD label)
+- Updates once per exchange (after each LLM response completes), not within a single streamed response
+- Shows a progress counter ("N of 6 characteristics specified")
+- "Proceed to analysis" button at bottom — always clickable, becomes visually prominent (blue accent) when 5+ characteristics are filled
+- Hidden when stage transitions to `chatting`
+
+### Policy specification output
+
+When the analyst clicks "Proceed to analysis", the frontend generates and inserts a synthetic assistant message containing:
+1. A human-readable markdown specification table with characteristic values and sources
+2. A `<policy_spec>` JSON block in the same format the LLM produces
+
+This dual format ensures Phase 3 can reliably extract the finalised specification from conversation history.
+
+### Frontend updates
+
+**Two-panel layout**: Chat occupies the left/main area, specification sidebar occupies the right (320px fixed width). The sidebar is only visible during the `specifying` stage.
+
+**Welcome state with example policy cards**: Six clickable cards representing the analyst-provided example policies. Each shows a short title and summary. Clicking a card inserts the full policy description as the first user message, starting the Socratic flow.
+
+**Updated welcome message**: "Describe a food environment policy you'd like to analyse for equity impact. This can be a rough idea — I'll ask some questions to clarify the details."
+
+**Stage indicator**: A pill badge in the header showing "Specifying policy" or "Ready for analysis".
+
+**Taxonomy hints**: When the LLM is asking about a specific characteristic, subtle chips appear above the chat input showing the relevant taxonomy options (e.g. all geography options when asking about geography). Clicking a chip inserts the text into the input field. Gracefully degrades: if `active_characteristic` is missing or unrecognised, no hints are shown.
+
+**Markdown table styling**: Added `.prose table`, `.prose th`, `.prose td` styles so the policy specification tables render cleanly in assistant messages.
+
+**Spec block stripping**: `MessageBubble` strips `<policy_spec>` blocks from rendered message content via regex, so the JSON extraction block is never visible to the analyst.
+
+### Files created
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/prompts/socratic.md` — Socratic system prompt with full taxonomy
+
+**Frontend:**
+- `frontend/src/lib/types.ts` — shared TypeScript types (PolicySpecification, SpecValue, SpecMetadata, TAXONOMY constant, ConversationStage)
+- `frontend/src/lib/spec-helpers.ts` — helper functions (buildSpecMarkdown, buildSpecBlock, filledCount)
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — sidebar panel
+- `frontend/src/components/specification/SpecificationRow.tsx` — individual characteristic row
+- `frontend/src/components/chat/PolicyCards.tsx` — example policy starter cards
+- `frontend/src/components/chat/TaxonomyHints.tsx` — taxonomy option chips
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/models/chat.py` — added `ConversationStage` type, `SpecValue`, `PolicySpecification`, `SpecMetadata` models, `stage` and `spec_state` fields on `ChatRequest`
+- `src/food_policy_impact_tool/llm/orchestrator.py` — replaced `stream_chat_response` with `stream_response` supporting stage-aware prompt selection, `<policy_spec>` extraction with graceful error handling, spec state injection into Socratic prompt
+- `src/food_policy_impact_tool/api/routes/chat.py` — switched from plain text to AI SDK data stream protocol, added stage-based routing (skip evidence during specifying), data stream formatter functions
+
+**Frontend:**
+- `frontend/src/components/chat/ChatContainer.tsx` — major refactor: two-panel layout, spec state management, stage tracking, `useChat` with data stream protocol and `body` option, proceed/reset handlers
+- `frontend/src/components/chat/MessageList.tsx` — updated welcome message, integrated PolicyCards
+- `frontend/src/components/chat/MessageBubble.tsx` — strips `<policy_spec>` blocks from rendered content
+- `frontend/src/components/chat/ChatInput.tsx` — removed border-t (managed by parent), adjusted for taxonomy hints above input
+- `frontend/src/components/ui/Header.tsx` — added stage indicator pill badge
+- `frontend/src/app/globals.css` — added design tokens for assumed/unspecified states, accent-light, table styling for markdown specification output
+
+### What has NOT been implemented yet
+
+- No equity impact analysis (Phase 3)
+- No population framework or sub-group selection (Phase 3)
+- No deliberation or provocation generation (Phase 4)
+- No persistence of policy specifications across sessions
+- No structured JSON extraction for backend consumption — sidebar state and markdown table are sufficient for now
+- No authentication or user management
+- No tests
