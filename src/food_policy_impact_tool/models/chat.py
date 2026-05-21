@@ -9,7 +9,7 @@ class SpecValue(BaseModel):
     """A single characteristic's value in the policy specification."""
 
     values: list[str] = []
-    source: Literal["analyst", "assumed", "unspecified", "empty"] = "empty"
+    source: Literal["analyst", "assumed", "unspecified", "not_applicable", "empty"] = "empty"
     rationale: str | None = None
 
 

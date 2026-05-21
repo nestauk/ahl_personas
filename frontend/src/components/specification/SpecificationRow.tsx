@@ -37,6 +37,15 @@ export function SpecificationRow({
         return (
           <span className="text-sm text-[var(--color-unspecified)]">TBD</span>
         );
+      case "not_applicable":
+        return (
+          <span
+            className="text-sm text-[var(--color-text-muted)] line-through opacity-60"
+            title={value.rationale || undefined}
+          >
+            N/A
+          </span>
+        );
       default:
         return (
           <span className="text-sm text-[var(--color-text-muted)]">—</span>

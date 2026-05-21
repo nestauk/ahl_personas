@@ -57,6 +57,11 @@ def _format_spec_state(spec_state: dict[str, Any] | None) -> str:
         entry = spec.get(key, {})
         source = entry.get("source", "empty")
         values = entry.get("values", [])
+        if source == "not_applicable":
+            rationale = entry.get("rationale", "")
+            suffix = f" ({rationale})" if rationale else ""
+            lines.append(f"- {label}: not applicable{suffix}")
+            continue
         if source == "empty" or not values:
             lines.append(f"- {label}: not yet discussed")
         else:

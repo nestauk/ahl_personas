@@ -39,6 +39,10 @@ export function buildSpecMarkdown(
         sourceStr = "Unspecified";
         unspecified.push(`- ${label}`);
         break;
+      case "not_applicable":
+        valueStr = "N/A";
+        sourceStr = "N/A";
+        break;
       default:
         valueStr = "—";
         sourceStr = "Not discussed";
@@ -77,5 +81,14 @@ export function buildSpecBlock(specMeta: SpecMetadata): string {
  * Count how many characteristics have a non-empty source.
  */
 export function filledCount(spec: PolicySpecification): number {
-  return Object.values(spec).filter((v) => v.source !== "empty").length;
+  return Object.values(spec).filter(
+    (v) => v.source !== "empty",
+  ).length;
+}
+
+/**
+ * Count characteristics that still need resolution (excludes N/A and filled).
+ */
+export function remainingCount(spec: PolicySpecification): number {
+  return Object.values(spec).filter((v) => v.source === "empty").length;
 }

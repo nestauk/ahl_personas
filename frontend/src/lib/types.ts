@@ -1,4 +1,4 @@
-export type SpecSource = "analyst" | "assumed" | "unspecified" | "empty";
+export type SpecSource = "analyst" | "assumed" | "unspecified" | "not_applicable" | "empty";
 
 export interface SpecValue {
   values: string[];
