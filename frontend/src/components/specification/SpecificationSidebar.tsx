@@ -372,54 +372,9 @@ export function SpecificationSidebar({
                 onClick={() => onSelectSection?.("scan")}
               />
             )}
-
-            {/* Analysis steps (sub-groups + synthesis) */}
-            {analysisSteps.map((step, i) => {
-              const isLast = i === analysisSteps.length - 1;
-              const label =
-                step.step === "synthesis"
-                  ? "Equity synthesis and provocations"
-                  : step.name || `Sub-group ${(step.index ?? 0) + 1}`;
-              const sectionId =
-                step.step === "synthesis"
-                  ? "synthesis"
-                  : `sg_${step.index ?? 0}`;
-              const isActive = step.status === "active";
-
-              let activeContent: React.ReactNode = null;
-              if (isActive && activeEvidenceSearch) {
-                activeContent = (
-                  <div className="evidence-search-indicator mt-1 flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
-                    <Search size={10} className="shrink-0 text-[var(--color-text-muted)]" />
-                    <span className="truncate text-[10px] text-[var(--color-text-muted)]">
-                      {activeEvidenceSearch}
-                    </span>
-                  </div>
-                );
-              } else if (isActive) {
-                activeContent = (
-                  <span className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                    {(evidenceSearchCount ?? 0) > 0
-                      ? `Generating analysis (${evidenceSearchCount} evidence searches done)…`
-                      : "Searching evidence base…"}
-                  </span>
-                );
-              }
-
-              return (
-                <StepEntry
-                  key={`${step.step}-${step.index ?? "s"}`}
-                  status={step.status}
-                  label={label}
-                  isLast={isLast}
-                  onClick={() => onSelectSection?.(sectionId)}
-                  activeContent={activeContent}
-                />
-              );
-            })}
           </div>
 
-          {/* Sub-groups section */}
+          {/* Sub-groups section — between scan and detailed analysis */}
           {hasSubGroups && (
             <SubGroupSection
               subGroups={confirmedSubGroups!}
@@ -427,6 +382,55 @@ export function SpecificationSidebar({
               defaultCollapsed={hasAnalysisStarted || isComplete}
               onRemove={onRemoveSubGroup}
             />
+          )}
+
+          {/* Analysis steps (sub-groups + synthesis) */}
+          {analysisSteps.length > 0 && (
+            <div className="p-4">
+              {analysisSteps.map((step, i) => {
+                const isLast = i === analysisSteps.length - 1;
+                const label =
+                  step.step === "synthesis"
+                    ? "Equity synthesis and provocations"
+                    : step.name || `Sub-group ${(step.index ?? 0) + 1}`;
+                const sectionId =
+                  step.step === "synthesis"
+                    ? "synthesis"
+                    : `sg_${step.index ?? 0}`;
+                const isActive = step.status === "active";
+
+                let activeContent: React.ReactNode = null;
+                if (isActive && activeEvidenceSearch) {
+                  activeContent = (
+                    <div className="evidence-search-indicator mt-1 flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
+                      <Search size={10} className="shrink-0 text-[var(--color-text-muted)]" />
+                      <span className="truncate text-[10px] text-[var(--color-text-muted)]">
+                        {activeEvidenceSearch}
+                      </span>
+                    </div>
+                  );
+                } else if (isActive) {
+                  activeContent = (
+                    <span className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                      {(evidenceSearchCount ?? 0) > 0
+                        ? `Generating analysis (${evidenceSearchCount} evidence searches done)…`
+                        : "Searching evidence base…"}
+                    </span>
+                  );
+                }
+
+                return (
+                  <StepEntry
+                    key={`${step.step}-${step.index ?? "s"}`}
+                    status={step.status}
+                    label={label}
+                    isLast={isLast}
+                    onClick={() => onSelectSection?.(sectionId)}
+                    activeContent={activeContent}
+                  />
+                );
+              })}
+            </div>
           )}
 
           {/* Time estimate */}

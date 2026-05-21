@@ -115,6 +115,16 @@ export function ChatContainer() {
   const confirmedSubGroupsRef = useRef(confirmedSubGroups);
   confirmedSubGroupsRef.current = confirmedSubGroups;
 
+  const activeSectionRef = useRef(activeSection);
+  activeSectionRef.current = activeSection;
+
+  const streamingSectionRef = useRef(streamingSection);
+  streamingSectionRef.current = streamingSection;
+
+  // Tracks the section that was streaming when it completed, so we can tell
+  // whether the user was following the stream or navigated elsewhere.
+  const lastStreamedSectionRef = useRef<string | null>(null);
+
   const lastProcessedDataIdx = useRef(-1);
 
   const {
@@ -214,16 +224,24 @@ export function ChatContainer() {
               return next;
             });
             setActiveSection("scan");
+            streamingSectionRef.current = "scan";
             setStreamingSection("scan");
           } else {
             const sectionId =
               step === "synthesis" ? "synthesis" : `sg_${index ?? 0}`;
-            setActiveSection(sectionId);
+            streamingSectionRef.current = sectionId;
             setStreamingSection(sectionId);
+            const current = activeSectionRef.current;
+            const lastStreamed = lastStreamedSectionRef.current;
+            if (current === null || current === lastStreamed) {
+              setActiveSection(sectionId);
+            }
           }
         }
 
         if (status === "complete" || status === "error") {
+          lastStreamedSectionRef.current = streamingSectionRef.current;
+          streamingSectionRef.current = null;
           setStreamingSection(null);
           setActiveEvidenceSearch(null);
         }
@@ -406,12 +424,27 @@ export function ChatContainer() {
       step: "synthesis",
       status: "pending",
     };
-    setAnalysisProgress({
-      steps: [...subgroupSteps, synthesisStep],
-      isComplete: false,
+    setAnalysisProgress((prev) => {
+      const scanStep = prev.steps.find((s) => s.step === "scan");
+      return {
+        steps: [
+          ...(scanStep ? [scanStep] : []),
+          ...subgroupSteps,
+          synthesisStep,
+        ],
+        isComplete: false,
+      };
     });
     setEvidenceSearchCount(0);
-    setAnalysisSections(new Map());
+    setAnalysisSections((prev) => {
+      const scanSection = prev.get("scan");
+      if (scanSection) {
+        const next = new Map<string, AnalysisSection>();
+        next.set("scan", scanSection);
+        return next;
+      }
+      return new Map();
+    });
     setActiveSection(null);
     setStreamingSection(null);
 
