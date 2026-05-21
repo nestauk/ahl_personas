@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,6 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from food_policy_impact_tool.api.dependencies import init_retriever, shutdown_retriever
 from food_policy_impact_tool.api.routes import chat, ingest
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:     %(name)s — %(message)s",
+)
 
 
 @asynccontextmanager

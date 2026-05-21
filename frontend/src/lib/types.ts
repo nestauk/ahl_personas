@@ -84,11 +84,24 @@ export interface ProposedSubGroupsEvent extends ProposedSubGroups {
   type: "proposed_sub_groups";
 }
 
+export interface AnalysisContentEvent {
+  type: "analysis_content";
+  section: string;
+  delta: string;
+}
+
+export interface AnalysisSection {
+  id: string;
+  name: string;
+  content: string;
+}
+
 export type AnalysisDataEvent =
   | AnalysisStepEvent
   | EvidenceSearchEvent
   | StageTransitionEvent
-  | ProposedSubGroupsEvent;
+  | ProposedSubGroupsEvent
+  | AnalysisContentEvent;
 
 // --- Taxonomy ---
 

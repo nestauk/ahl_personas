@@ -4,40 +4,17 @@ import type { Message } from "ai";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { renderGroundingBadges } from "@/lib/grounding-badges";
 
 const SPEC_BLOCK_REGEX = /\s*<policy_spec>[\s\S]*?<\/policy_spec>\s*/g;
 const SUBGROUPS_BLOCK_REGEX =
   /\s*<proposed_sub_groups>[\s\S]*?<\/proposed_sub_groups>\s*/g;
-
-const EVIDENCE_TAG_REGEX =
-  /\[Evidence:\s*([^\]]+)\]/g;
-const ANALOGICAL_TAG_REGEX =
-  /\[Analogical:\s*([^\]]+)\]/g;
-const REASONING_TAG_REGEX = /\[Reasoning\]/g;
-const GAP_TAG_REGEX = /\[Gap\]/g;
 
 function stripStructuredBlocks(content: string): string {
   return content
     .replace(SPEC_BLOCK_REGEX, "")
     .replace(SUBGROUPS_BLOCK_REGEX, "")
     .trimEnd();
-}
-
-function renderGroundingBadges(content: string): string {
-  return content
-    .replace(
-      EVIDENCE_TAG_REGEX,
-      '<span class="badge-evidence">Evidence: $1</span>',
-    )
-    .replace(
-      ANALOGICAL_TAG_REGEX,
-      '<span class="badge-analogical">Analogical: $1</span>',
-    )
-    .replace(
-      REASONING_TAG_REGEX,
-      '<span class="badge-reasoning">Reasoning</span>',
-    )
-    .replace(GAP_TAG_REGEX, '<span class="badge-gap">Gap</span>');
 }
 
 interface MessageBubbleProps {

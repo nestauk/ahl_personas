@@ -26,6 +26,9 @@ interface SpecificationSidebarProps {
   onRunAnalysis?: () => void;
   onRemoveSubGroup?: (id: string) => void;
   isLoading?: boolean;
+  activeEvidenceSearch?: string | null;
+  evidenceSearchCount?: number;
+  onSelectSection?: (sectionId: string) => void;
 }
 
 function CompactSpecView({
@@ -141,6 +144,9 @@ export function SpecificationSidebar({
   onRunAnalysis,
   onRemoveSubGroup,
   isLoading,
+  activeEvidenceSearch,
+  evidenceSearchCount,
+  onSelectSection,
 }: SpecificationSidebarProps) {
   const filled = filledCount(spec);
   const total = Object.keys(TAXONOMY).length;
@@ -156,7 +162,9 @@ export function SpecificationSidebar({
     confirmedSubGroups &&
     analysisProgress &&
     analysisProgress.steps.some(
-      (s) => s.status === "active" || s.status === "complete" || s.status === "error",
+      (s) =>
+        (s.step === "subgroup" || s.step === "synthesis") &&
+        (s.status === "active" || s.status === "complete" || s.status === "error"),
     );
 
   const hasSubGroupSelection =
@@ -172,6 +180,9 @@ export function SpecificationSidebar({
           <AnalysisProgressPanel
             progress={analysisProgress}
             confirmedSubGroups={confirmedSubGroups!}
+            activeEvidenceSearch={activeEvidenceSearch ?? null}
+            evidenceSearchCount={evidenceSearchCount ?? 0}
+            onSelectSection={onSelectSection ?? (() => {})}
           />
         ) : hasSubGroupSelection ? (
           <>

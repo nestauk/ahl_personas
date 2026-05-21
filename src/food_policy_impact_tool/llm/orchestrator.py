@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -345,7 +346,19 @@ async def _stream_subgroup_with_tools(
         },
     ]
 
+    sg_name = sub_group.get("name", "Unknown sub-group")
+    tool_call_round = 0
+    sg_start = time.monotonic()
+    logger.info("[subgroup] START '%s' — calling LLM with search_evidence tool", sg_name)
+
     while True:
+        tool_call_round += 1
+        round_start = time.monotonic()
+        logger.info(
+            "[subgroup] '%s' round %d — sending to LLM (%d messages)",
+            sg_name, tool_call_round, len(api_messages),
+        )
+
         stream = await _stream_with_retry(
             client,
             model=settings.openai_model,
@@ -357,6 +370,7 @@ async def _stream_subgroup_with_tools(
         collected_text: list[str] = []
         tool_calls_by_index: dict[int, dict[str, Any]] = {}
         finish_reason = None
+        first_token = True
 
         async for chunk in stream:
             choice = chunk.choices[0]
@@ -364,6 +378,13 @@ async def _stream_subgroup_with_tools(
             delta = choice.delta
 
             if delta.content:
+                if first_token:
+                    logger.info(
+                        "[subgroup] '%s' round %d — first text token after %.1fs",
+                        sg_name, tool_call_round,
+                        time.monotonic() - round_start,
+                    )
+                    first_token = False
                 collected_text.append(delta.content)
                 yield ("text", delta.content)
 
@@ -384,7 +405,14 @@ async def _stream_subgroup_with_tools(
                         if tc_delta.function.arguments:
                             tc["function"]["arguments"] += tc_delta.function.arguments
 
+        round_elapsed = time.monotonic() - round_start
+
         if finish_reason == "tool_calls" and tool_calls_by_index:
+            logger.info(
+                "[subgroup] '%s' round %d — LLM requested %d tool call(s) after %.1fs",
+                sg_name, tool_call_round, len(tool_calls_by_index), round_elapsed,
+            )
+
             assistant_msg: dict[str, Any] = {"role": "assistant"}
             if collected_text:
                 assistant_msg["content"] = "".join(collected_text)
@@ -411,13 +439,21 @@ async def _stream_subgroup_with_tools(
 
                     yield ("data", {"type": "evidence_search", "query": query})
 
+                    retrieve_start = time.monotonic()
                     results = retriever.retrieve(query, top_k=8)
                     tool_response = _format_tool_evidence(results)
+                    retrieve_ms = (time.monotonic() - retrieve_start) * 1000
 
                     logger.info(
-                        "search_evidence: query='%.80s' returned %d chunks",
-                        query, len(results),
+                        "[subgroup] '%s' — search_evidence('%s') → %d chunks in %.0fms",
+                        sg_name, query[:60], len(results), retrieve_ms,
                     )
+
+                    yield ("data", {
+                        "type": "evidence_search_complete",
+                        "query": query,
+                        "num_results": len(results),
+                    })
                 else:
                     tool_response = f"Unknown tool: {fn_name}"
 
@@ -427,8 +463,19 @@ async def _stream_subgroup_with_tools(
                     "content": tool_response,
                 })
 
+            # Keepalive before the next LLM round — prevents the browser
+            # from flagging the connection as unresponsive during the wait
+            # for the LLM to process tool results and start generating.
+            yield ("data", {"type": "heartbeat"})
             collected_text = []
         else:
+            text_len = sum(len(t) for t in collected_text)
+            logger.info(
+                "[subgroup] '%s' round %d — generation complete, "
+                "%d chars in %.1fs (total %.1fs)",
+                sg_name, tool_call_round, text_len,
+                round_elapsed, time.monotonic() - sg_start,
+            )
             break
 
 
@@ -471,6 +518,12 @@ async def _stream_synthesis(
         },
     ]
 
+    logger.info(
+        "[synthesis] Calling LLM with %d sub-group analyses (%d chars of context)",
+        len(sub_group_analyses),
+        len(analyses_text),
+    )
+
     stream = await _stream_with_retry(
         client,
         model=settings.openai_model,
@@ -478,9 +531,17 @@ async def _stream_synthesis(
         stream=True,
     )
 
+    first_token = True
+    synth_start = time.monotonic()
     async for chunk in stream:
         delta = chunk.choices[0].delta
         if delta.content:
+            if first_token:
+                logger.info(
+                    "[synthesis] First token after %.1fs",
+                    time.monotonic() - synth_start,
+                )
+                first_token = False
             yield ("text", delta.content)
 
 
@@ -507,12 +568,21 @@ async def stream_analysis_chain(
     settings = get_settings()
     client = AsyncOpenAI(api_key=settings.openai_api_key)
 
+    chain_start = time.monotonic()
+    n = len(confirmed_subgroups)
+    logger.info(
+        "[chain] === ANALYSIS CHAIN START === %d sub-groups to analyse",
+        n,
+    )
+
     policy_spec = _extract_policy_spec_from_history(messages)
 
     sub_group_analyses: list[dict[str, str]] = []
 
     for i, sg in enumerate(confirmed_subgroups):
         sg_name = sg.get("name", f"Sub-group {i + 1}")
+        logger.info("[chain] --- Sub-group %d/%d: '%s' ---", i + 1, n, sg_name)
+        yield ("data", {"type": "heartbeat"})
         yield ("data", {
             "type": "analysis_step",
             "step": "subgroup",
@@ -521,19 +591,32 @@ async def stream_analysis_chain(
             "status": "active",
         })
 
+        section_id = f"sg_{i}"
         try:
+            sg_start = time.monotonic()
             analysis_text: list[str] = []
             async for part in _stream_subgroup_with_tools(
                 client, policy_spec, sg, retriever,
             ):
                 if part[0] == "text":
                     analysis_text.append(part[1])
-                yield part
+                    yield ("analysis_content", {
+                        "section": section_id,
+                        "delta": part[1],
+                    })
+                else:
+                    yield part
 
+            sg_elapsed = time.monotonic() - sg_start
+            text_len = sum(len(t) for t in analysis_text)
             sub_group_analyses.append({
                 "name": sg_name,
                 "text": "".join(analysis_text),
             })
+            logger.info(
+                "[chain] Sub-group %d/%d COMPLETE: '%s' — %d chars in %.1fs",
+                i + 1, n, sg_name, text_len, sg_elapsed,
+            )
             yield ("data", {
                 "type": "analysis_step",
                 "step": "subgroup",
@@ -541,12 +624,17 @@ async def stream_analysis_chain(
                 "status": "complete",
             })
         except Exception:
-            logger.exception("Analysis failed for sub-group '%s'", sg_name)
-            yield ("text", (
-                f"\n\n> **Analysis error**: The analysis for sub-group "
-                f"\"{sg_name}\" could not be completed. "
-                f"The remaining sub-groups will continue.\n\n"
-            ))
+            logger.exception(
+                "[chain] Sub-group %d/%d FAILED: '%s'", i + 1, n, sg_name,
+            )
+            yield ("analysis_content", {
+                "section": section_id,
+                "delta": (
+                    f"\n\n> **Analysis error**: The analysis for sub-group "
+                    f"\"{sg_name}\" could not be completed. "
+                    f"The remaining sub-groups will continue.\n\n"
+                ),
+            })
             yield ("data", {
                 "type": "analysis_step",
                 "step": "subgroup",
@@ -554,20 +642,44 @@ async def stream_analysis_chain(
                 "status": "error",
             })
 
+    logger.info(
+        "[chain] --- Synthesis: %d sub-group analyses available ---",
+        len(sub_group_analyses),
+    )
     yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "active"})
 
     try:
+        synthesis_start = time.monotonic()
         async for part in _stream_synthesis(client, policy_spec, sub_group_analyses):
-            yield part
+            if part[0] == "text":
+                yield ("analysis_content", {
+                    "section": "synthesis",
+                    "delta": part[1],
+                })
+            else:
+                yield part
+        logger.info(
+            "[chain] Synthesis COMPLETE in %.1fs",
+            time.monotonic() - synthesis_start,
+        )
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "complete"})
     except Exception:
-        logger.exception("Synthesis call failed")
-        yield ("text", (
-            "\n\n> **Analysis error**: The equity synthesis could not be completed. "
-            "The per-sub-group analyses above are still available.\n\n"
-        ))
+        logger.exception("[chain] Synthesis FAILED")
+        yield ("analysis_content", {
+            "section": "synthesis",
+            "delta": (
+                "\n\n> **Analysis error**: The equity synthesis could not be completed. "
+                "The per-sub-group analyses above are still available.\n\n"
+            ),
+        })
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "error"})
 
+    chain_elapsed = time.monotonic() - chain_start
+    logger.info(
+        "[chain] === ANALYSIS CHAIN COMPLETE === "
+        "%d/%d sub-groups succeeded in %.1fs total",
+        len(sub_group_analyses), n, chain_elapsed,
+    )
     yield ("data", {"type": "stage_transition", "stage": "chatting"})
 
 

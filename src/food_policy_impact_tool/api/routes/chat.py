@@ -84,6 +84,8 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         ):
             if part_type == "text":
                 yield _format_text_part(content)
+            elif part_type == "analysis_content":
+                yield _format_data_part({"type": "analysis_content", **content})
             elif part_type == "data":
                 yield _format_data_part(content)
 
