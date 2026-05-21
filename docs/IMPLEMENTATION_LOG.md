@@ -509,3 +509,172 @@ Only these four patterns are matched — no arbitrary HTML from LLM output passe
 - No persistence of analyses across sessions
 - No authentication or user management
 - No tests
+
+---
+
+## 2026-05-21 — Phase 3 follow-up: Analysis artifact panels
+
+### Problem
+
+The original Phase 3 implementation streamed the entire multi-sub-group analysis as one long assistant message via `react-markdown`. This caused the browser tab to become unresponsive — each streamed text delta triggered a full re-render of the growing markdown content. With 5–6 sub-groups producing 2000+ words each plus synthesis, the accumulated message overwhelmed the browser.
+
+### What was done
+
+Moved analysis output from a single chat message into **per-section artifact panels**, rendered in a dedicated analysis view that replaces the chat area during analysis and sits alongside it afterwards.
+
+### Architecture change: analysis_content data events
+
+The orchestrator no longer yields `("text", delta)` for sub-group and synthesis calls. Instead, the chain orchestrator re-tags inner text yields as `("analysis_content", {"section": "sg_0", "delta": "..."})`. The inner functions (`_stream_subgroup_with_tools`, `_stream_synthesis`) remain unchanged — the re-tagging happens at the `stream_analysis_chain` level, keeping separation of concerns clean.
+
+`chat.py` formats these as `2:` data messages with `{"type": "analysis_content", "section": "sg_0", "delta": "..."}`. Non-text yields (data events for progress, evidence search) pass through unchanged.
+
+Section IDs follow a convention: `"sg_0"`, `"sg_1"`, etc. for sub-group analyses, `"synthesis"` for the final call. These IDs are stable and match between the `analysis_step` progress events and the content events.
+
+### Frontend: analysis sections state
+
+`ChatContainer` now manages three new pieces of state:
+
+- **`analysisSections`** (`Map<string, AnalysisSection>`) — accumulates content per section. Each `analysis_content` data event appends its delta to the correct section's content buffer. Section names are derived from the confirmed sub-groups list (for `sg_N` sections) or hardcoded ("Equity synthesis and provocations" for `synthesis`).
+- **`activeSection`** (`string | null`) — the currently displayed section. Set automatically when a new section starts streaming (via `analysis_step` active events), and changeable by the analyst via the sidebar stepper.
+- **`streamingSection`** (`string | null`) — which section is currently receiving content. Used to show a streaming indicator and enable auto-scroll. Cleared when the section completes.
+
+### Frontend: AnalysisView and AnalysisSectionPanel
+
+**`AnalysisView`** — displays the active section. Shows a header bar with the section name and delegates rendering to `AnalysisSectionPanel`. When no section is selected, shows a placeholder message.
+
+**`AnalysisSectionPanel`** — memoised component that renders one section's accumulated markdown with grounding badges (via the shared `renderGroundingBadges` utility). Uses `rehype-raw` for the grounding badge `<span>` elements. Auto-scrolls to the bottom while the section is streaming (throttled to 500ms intervals to avoid layout thrashing). Shows a pulsing dot indicator while streaming.
+
+Performance is the key benefit: only the active section's markdown is rendered at any time, rather than the entire analysis. Each section's content grows independently, and re-renders are isolated to the visible panel.
+
+### Frontend: layout modes
+
+`ChatContainer` now renders three distinct layouts:
+
+1. **Specifying / scanning** (no analysis running): Full-width chat — `MessageList` + `ChatInput` + `TaxonomyHints`. Same as before.
+
+2. **Analysing** (analysis running, sections exist): Full-width `AnalysisView`. The chat is hidden — the analyst watches the analysis build section by section. No chat input needed during analysis.
+
+3. **Chatting with analysis** (analysis complete, sections exist): **60/40 split view** — `AnalysisView` on the left (60% width, border-separated), chat column on the right (40% width) with `MessageList` + `ChatInput`. The analyst can navigate analysis sections while asking follow-up questions.
+
+### Frontend: sidebar persistence
+
+The `AnalysisProgressPanel` in the sidebar now persists across the `analysing` → `chatting` stage transition. Previously, the sidebar's conditional rendering only showed the progress panel when `stage === "analysing"`, causing the section navigation to vanish when the analysis completed. Now, the sidebar shows the progress panel whenever analysis steps exist, regardless of stage.
+
+### Frontend: completion message
+
+When the `stage_transition` to `chatting` arrives, a synthetic assistant message is inserted into the chat: "Analysis complete — N sections analysed. Ask follow-up questions below, or navigate sections in the analysis panel." This gives the chat column immediate context for the follow-up conversation.
+
+### Shared utility: grounding badges
+
+Extracted `renderGroundingBadges` from `MessageBubble` into `frontend/src/lib/grounding-badges.ts`. Used by both `MessageBubble` (for chat messages) and `AnalysisSectionPanel` (for analysis content). Keeps the strict regex pattern in one place.
+
+### Files created
+
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — memoised single-section markdown renderer
+- `frontend/src/components/analysis/AnalysisView.tsx` — section display with header bar
+- `frontend/src/lib/grounding-badges.ts` — shared grounding badge regex utility
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/orchestrator.py` — `stream_analysis_chain` re-tags text yields from sub-group and synthesis calls as `("analysis_content", {section, delta})`. Error banners also emitted as analysis_content.
+- `src/food_policy_impact_tool/api/routes/chat.py` — handles new `"analysis_content"` part type, formats as `2:` data message with `{type: "analysis_content", section, delta}`.
+
+**Frontend:**
+- `frontend/src/lib/types.ts` — added `AnalysisSection` and `AnalysisContentEvent` interfaces, added to `AnalysisDataEvent` union.
+- `frontend/src/components/chat/ChatContainer.tsx` — major rewrite: analysis sections state, `analysis_content` event handling, three layout modes (full chat / full analysis / split view), `handleSelectSection` callback, completion message insertion, reset of new state in `handleNewSession` and `handleRunAnalysis`.
+- `frontend/src/components/analysis/AnalysisProgressPanel.tsx` — rewritten: accepts `onSelectSection` callback, clicking completed/active steps triggers section navigation. Removed DOM scroll approach.
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — passes `onSelectSection` through to `AnalysisProgressPanel`. Sidebar now shows progress panel in both `analysing` and `chatting` stages when analysis steps exist.
+- `frontend/src/components/chat/MessageBubble.tsx` — `renderGroundingBadges` extracted to shared utility.
+- `frontend/src/components/chat/MessageList.tsx` — removed unused `isStreaming` prop passed to `MessageBubble`.
+
+### Bug fixes
+
+- **Sidebar disappearing after analysis**: The `AnalysisProgressPanel` was only rendered when `stage === "analysing"`. After the stage transition to `chatting`, the progress panel vanished and the analyst lost section navigation. Fixed by also rendering the panel when `stage === "chatting"` and analysis steps exist.
+
+### What has NOT been implemented yet
+
+- No deliberation layer beyond what's in the provocations section (Phase 4)
+- No multi-turn analysis refinement (re-running with different sub-groups is a new session)
+- No export of analysis outputs (PDF, Word)
+- No quantitative modelling beyond the qualitative evidence base
+- No authentication or user management
+- No tests
+
+---
+
+## 2026-05-21 — Local session caching
+
+### Problem
+
+All application state (chat messages, policy specification, analysis sections, progress) was held only in React state. Refreshing the page or closing and reopening the browser tab wiped everything — including completed analyses that may have taken several minutes to generate.
+
+### What was done
+
+Added localStorage-based session caching so that all meaningful state survives page refresh or close/reopen. The implementation covers three scenarios: normal state persistence, clean session reset, and graceful recovery from interrupted analyses.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Storage backend | `localStorage` with a single `ahl-session` key | Simplest option, no dependencies, 5–10 MB quota is more than sufficient for the ~50–100 KB of text a typical analysis produces |
+| Serialisation of `Map` | `Array.from(map.entries())` on save, `new Map(entries)` on restore | `Map` is not JSON-serialisable; entry arrays round-trip cleanly |
+| Save timing | Debounced (500ms) via a single `useEffect` watching all cached fields | Prevents thrashing during rapid streaming deltas while keeping state reasonably current |
+| Cache versioning | Integer `version` field in the cached blob | Allows discarding stale caches after schema-breaking code changes without crashes |
+| Interrupted analysis recovery | Transition `analysing` → `chatting`, mark pending/active steps as `error` | Cannot resume an HTTP stream after page reload; showing completed sections with clear error markers is the best available UX |
+| State initialisation | Lazy `useState` initialisers sourcing from cached values | Avoids a flash of empty state followed by a re-render; the first render already has the restored data |
+| Message restoration | Mount `useEffect` calling `setMessages()` | `useChat` manages its own message state and doesn't accept initial messages; `setMessages` is the only way to inject cached history |
+
+### Session cache module: `frontend/src/lib/session-cache.ts`
+
+New utility module with six exports:
+
+- **`CachedSession`** interface — typed shape of the localStorage blob. Includes `version`, all nine durable state fields, and `analysisSections` as `[string, AnalysisSection][]` (the serialised form of the Map).
+- **`saveSession(state)`** — serialises state to JSON with Map-to-array conversion. Wrapped in try/catch to silently degrade on storage quota errors.
+- **`loadSession()`** — reads and parses from localStorage. Returns `null` on any failure: missing key, JSON parse error, version mismatch, or missing required fields.
+- **`hydrateAnalysisSections(entries)`** — reconstructs the `Map<string, AnalysisSection>` from the cached array.
+- **`fixInterruptedAnalysis(cached)`** — detects if the cached stage was `analysing` with progress steps or sections present. If so, returns adjusted values: stage set to `chatting`, any `active`/`pending` steps re-marked as `error`, `isComplete` set to `true`, and a `wasInterrupted` flag for the caller. If the cached stage was `analysing` but had no progress (e.g. the scan hadn't started), leaves the state unchanged since there's nothing to recover.
+- **`clearSession()` / `debouncedSave()`** — removes the localStorage key / wraps `saveSession` with a 500ms debounce timer.
+
+### ChatContainer changes
+
+**State initialisation from cache**: A lazy `useState` at the top of the component calls `loadSession()` once and runs `fixInterruptedAnalysis()` on the result. All subsequent `useState` hooks source their initial values from this cached result (falling back to defaults when no cache exists). For `analysisSections` (a Map), a lazy initialiser calls `hydrateAnalysisSections()`.
+
+**Message restoration**: A mount-only `useEffect` calls `setMessages()` with the cached messages. If the analysis was interrupted, it appends a synthetic assistant message: "The previous analysis was interrupted (N of M sections completed). The completed sections are available in the analysis panel."
+
+**Debounced save**: A single `useEffect` watches all nine cached state values and calls `debouncedSave()` on any change. A `skipSaveRef` prevents the initial hydration from immediately re-writing the same data back to localStorage.
+
+**Session clearing**: `handleNewSession` now calls `clearSession()` as its first action, ensuring the localStorage key is removed before state is reset.
+
+### What is cached
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `stage` | `ConversationStage` | `specifying`, `analysing`, or `chatting` |
+| `messages` | `Message[]` | Full chat history from Vercel AI SDK |
+| `specMeta` | `SpecMetadata` | Policy specification sidebar state |
+| `proposedSubGroups` | `ProposedSubGroups \| null` | Sub-groups proposed by the scan call |
+| `confirmedSubGroups` | `SubGroup[] \| null` | Analyst-confirmed sub-groups |
+| `analysisProgress` | `AnalysisProgress` | Stepper state (step statuses) |
+| `analysisSections` | `Map → [key, value][]` | Serialised as entry array for JSON compatibility |
+| `activeSection` | `string \| null` | Currently viewed analysis section |
+| `evidenceSearchCount` | `number` | Total evidence searches performed |
+
+**Not cached** (transient streaming state): `activeEvidenceSearch`, `streamingSection`, `isLoading`, `input`, `data`, `lastProcessedDataIdx`.
+
+### Files created
+
+- `frontend/src/lib/session-cache.ts` — session cache utility module
+
+### Files modified
+
+- `frontend/src/components/chat/ChatContainer.tsx` — cache restoration on mount, debounced save effect, `clearSession()` in `handleNewSession`
+
+### What has NOT been implemented yet
+
+- No deliberation layer beyond what's in the provocations section (Phase 4)
+- No multi-turn analysis refinement (re-running with different sub-groups is a new session)
+- No export of analysis outputs (PDF, Word)
+- No quantitative modelling beyond the qualitative evidence base
+- No authentication or user management
+- No tests

@@ -155,11 +155,11 @@ export function SpecificationSidebar({
   const isAnalysing = stage === "analysing";
   const hasSpec = filled > 0;
 
-  if (!isSpecifying && !isAnalysing && !hasSpec) return null;
+  const isChatting = stage === "chatting";
 
-  const analysisRunning =
-    isAnalysing &&
-    confirmedSubGroups &&
+  if (!isSpecifying && !isAnalysing && !isChatting && !hasSpec) return null;
+
+  const hasAnalysisSteps =
     analysisProgress &&
     analysisProgress.steps.some(
       (s) =>
@@ -167,19 +167,21 @@ export function SpecificationSidebar({
         (s.status === "active" || s.status === "complete" || s.status === "error"),
     );
 
+  const analysisRunning = isAnalysing && confirmedSubGroups && hasAnalysisSteps;
+
   const hasSubGroupSelection =
     isAnalysing && confirmedSubGroups && confirmedSubGroups.length > 0 && !analysisRunning;
 
-  // Sidebar during analysis: sub-group selection or progress panel
-  if (isAnalysing) {
+  // Sidebar during analysis or chatting with completed analysis
+  if (isAnalysing || (isChatting && hasAnalysisSteps)) {
     return (
       <aside className="flex h-full w-80 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
         <CompactSpecView spec={spec} policyName={policyName} />
 
-        {analysisRunning && analysisProgress ? (
+        {(analysisRunning || (isChatting && hasAnalysisSteps)) && analysisProgress ? (
           <AnalysisProgressPanel
             progress={analysisProgress}
-            confirmedSubGroups={confirmedSubGroups!}
+            confirmedSubGroups={confirmedSubGroups || []}
             activeEvidenceSearch={activeEvidenceSearch ?? null}
             evidenceSearchCount={evidenceSearchCount ?? 0}
             onSelectSection={onSelectSection ?? (() => {})}

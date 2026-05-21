@@ -11,6 +11,13 @@ import { SpecificationSidebar } from "../specification/SpecificationSidebar";
 import { AnalysisView } from "../analysis/AnalysisView";
 import { buildSpecBlock, buildSpecMarkdown } from "@/lib/spec-helpers";
 import {
+  clearSession,
+  debouncedSave,
+  fixInterruptedAnalysis,
+  hydrateAnalysisSections,
+  loadSession,
+} from "@/lib/session-cache";
+import {
   EMPTY_SPEC,
   TAXONOMY,
   createEmptyAnalysisProgress,
@@ -51,31 +58,52 @@ function isAnalysisEvent(item: unknown): item is Record<string, unknown> {
 }
 
 export function ChatContainer() {
-  const [stage, setStage] = useState<ConversationStage>("specifying");
-  const [specMeta, setSpecMeta] = useState<SpecMetadata>({
-    spec: { ...EMPTY_SPEC },
-    active_characteristic: null,
-    policy_name: null,
-    policy_description: null,
+  // Load cached session once on first render
+  const [initialCache] = useState(() => {
+    const cached = loadSession();
+    if (!cached) return null;
+    const fixup = fixInterruptedAnalysis(cached);
+    return { cached, ...fixup };
   });
+
+  const [stage, setStage] = useState<ConversationStage>(
+    initialCache?.stage ?? "specifying",
+  );
+  const [specMeta, setSpecMeta] = useState<SpecMetadata>(
+    initialCache?.cached.specMeta ?? {
+      spec: { ...EMPTY_SPEC },
+      active_characteristic: null,
+      policy_name: null,
+      policy_description: null,
+    },
+  );
   const [proposedSubGroups, setProposedSubGroups] =
-    useState<ProposedSubGroups | null>(null);
+    useState<ProposedSubGroups | null>(
+      initialCache?.cached.proposedSubGroups ?? null,
+    );
   const [confirmedSubGroups, setConfirmedSubGroups] = useState<
     SubGroup[] | null
-  >(null);
+  >(initialCache?.cached.confirmedSubGroups ?? null);
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress>(
-    createEmptyAnalysisProgress(),
+    initialCache?.analysisProgress ?? createEmptyAnalysisProgress(),
   );
   const [activeEvidenceSearch, setActiveEvidenceSearch] = useState<
     string | null
   >(null);
-  const [evidenceSearchCount, setEvidenceSearchCount] = useState(0);
+  const [evidenceSearchCount, setEvidenceSearchCount] = useState(
+    initialCache?.cached.evidenceSearchCount ?? 0,
+  );
 
-  // Analysis artifact state — sections accumulate text from analysis_content events
   const [analysisSections, setAnalysisSections] = useState<
     Map<string, AnalysisSection>
-  >(new Map());
-  const [activeSection, setActiveSection] = useState<string | null>(null);
+  >(() =>
+    initialCache?.cached.analysisSections
+      ? hydrateAnalysisSections(initialCache.cached.analysisSections)
+      : new Map(),
+  );
+  const [activeSection, setActiveSection] = useState<string | null>(
+    initialCache?.cached.activeSection ?? null,
+  );
   const [streamingSection, setStreamingSection] = useState<string | null>(null);
 
   const specMetaRef = useRef(specMeta);
@@ -237,7 +265,64 @@ export function ChatContainer() {
     lastProcessedDataIdx.current = data.length - 1;
   }, [data, setMessages, analysisSections.size]);
 
+  // Restore cached messages on mount (useChat manages its own messages state)
+  useEffect(() => {
+    if (!initialCache) return;
+    const { cached, wasInterrupted } = initialCache;
+
+    setMessages(cached.messages);
+
+    if (wasInterrupted) {
+      const completedCount = cached.analysisProgress.steps.filter(
+        (s) => s.status === "complete",
+      ).length;
+      const totalCount = cached.analysisProgress.steps.length;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `analysis-interrupted-${Date.now()}`,
+          role: "assistant",
+          content: `The previous analysis was interrupted (${completedCount} of ${totalCount} sections completed). The completed sections are available in the analysis panel. You can re-run the analysis if needed.`,
+        },
+      ]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist session state to localStorage (debounced)
+  const skipSaveRef = useRef(!!initialCache);
+  useEffect(() => {
+    // Skip the first save triggered by initial state hydration
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false;
+      return;
+    }
+
+    debouncedSave({
+      stage,
+      messages,
+      specMeta,
+      proposedSubGroups,
+      confirmedSubGroups,
+      analysisProgress,
+      analysisSections,
+      activeSection,
+      evidenceSearchCount,
+    });
+  }, [
+    stage,
+    messages,
+    specMeta,
+    proposedSubGroups,
+    confirmedSubGroups,
+    analysisProgress,
+    analysisSections,
+    activeSection,
+    evidenceSearchCount,
+  ]);
+
   const handleNewSession = useCallback(() => {
+    clearSession();
     setMessages([]);
     setStage("specifying");
     setSpecMeta({
