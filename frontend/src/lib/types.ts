@@ -1,25 +1,13 @@
-export type SpecSource = "analyst" | "assumed" | "unspecified" | "not_applicable" | "empty";
-
-export interface SpecValue {
-  values: string[];
-  source: SpecSource;
-  rationale?: string | null;
-}
-
-export interface PolicySpecification {
-  policy_lever: SpecValue;
-  in_scope_businesses: SpecValue;
-  business_size: SpecValue;
-  delivery_channel: SpecValue;
-  population: SpecValue;
-  geography: SpecValue;
+export interface PolicySummarySpec {
+  policy_name: string | null;
+  policy_summary: string | null;
+  taxonomy_mapping: Record<string, string[]>;
+  open_questions: string[];
+  ready_for_analysis: boolean;
 }
 
 export interface SpecMetadata {
-  spec: PolicySpecification;
-  active_characteristic?: string | null;
-  policy_name?: string | null;
-  policy_description?: string | null;
+  spec: PolicySummarySpec;
 }
 
 export type ConversationStage = "specifying" | "analysing" | "chatting";
@@ -103,90 +91,28 @@ export type AnalysisDataEvent =
   | ProposedSubGroupsEvent
   | AnalysisContentEvent;
 
-// --- Taxonomy ---
+// --- Taxonomy labels (for sidebar pill display) ---
 
-export const TAXONOMY: Record<
-  keyof PolicySpecification,
-  { label: string; options: string[] }
-> = {
-  policy_lever: {
-    label: "Policy lever",
-    options: [
-      "Price",
-      "Placement & Positioning",
-      "Information",
-      "Availability",
-      "Reformulation",
-      "Portion Size",
-      "Advertisement",
-      "Treatment",
-      "Education",
-      "Physical activity",
-      "Penalties",
-      "Rewards & Incentives",
-    ],
-  },
-  in_scope_businesses: {
-    label: "In-scope businesses",
-    options: [
-      "Retailers",
-      "Out of Home (OOH)",
-      "Manufacturers",
-      "Convenience stores",
-      "Public sector (hospitals, prisons, schools etc)",
-      "Takeaways",
-    ],
-  },
-  business_size: {
-    label: "Business size",
-    options: [
-      "Large businesses (250+ employees)",
-      "Medium businesses (50+ employees)",
-      "SMEs",
-      "MSEs",
-    ],
-  },
-  delivery_channel: {
-    label: "Delivery channel",
-    options: [
-      "In-person",
-      "Public services",
-      "Food business",
-      "Online",
-      "Private providers",
-    ],
-  },
-  population: {
-    label: "Population",
-    options: [
-      "General",
-      "Adults",
-      "Children",
-      "Lower income people",
-      "Pregnant women/young families",
-      "Adults living with obesity",
-    ],
-  },
-  geography: {
-    label: "Geography",
-    options: ["UK-wide", "England", "Wales", "Scotland"],
-  },
+export const TAXONOMY_LABELS: Record<string, string> = {
+  policy_lever: "Policy lever",
+  in_scope_businesses: "In-scope businesses",
+  business_size: "Business size",
+  delivery_channel: "Delivery channel",
+  population: "Population",
+  geography: "Geography",
 };
 
-export const EMPTY_SPEC: PolicySpecification = {
-  policy_lever: { values: [], source: "empty" },
-  in_scope_businesses: { values: [], source: "empty" },
-  business_size: { values: [], source: "empty" },
-  delivery_channel: { values: [], source: "empty" },
-  population: { values: [], source: "empty" },
-  geography: { values: [], source: "empty" },
+export const EMPTY_SUMMARY_SPEC: PolicySummarySpec = {
+  policy_name: null,
+  policy_summary: null,
+  taxonomy_mapping: {},
+  open_questions: [],
+  ready_for_analysis: false,
 };
 
 export function createEmptySpecMetadata(): SpecMetadata {
   return {
-    spec: { ...EMPTY_SPEC },
-    active_characteristic: null,
-    policy_name: null,
+    spec: { ...EMPTY_SUMMARY_SPEC },
   };
 }
 

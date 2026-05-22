@@ -5,11 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { JSONValue } from "ai";
 import { ChatInput } from "./ChatInput";
 import { MessageList } from "./MessageList";
-import { TaxonomyHints } from "./TaxonomyHints";
 import { Header } from "../ui/Header";
 import { SpecificationSidebar } from "../specification/SpecificationSidebar";
 import { AnalysisView } from "../analysis/AnalysisView";
-import { buildSpecBlock, buildSpecMarkdown } from "@/lib/spec-helpers";
+import { buildSpecMarkdown, buildSpecBlock } from "@/lib/spec-helpers";
 import {
   clearSession,
   debouncedSave,
@@ -18,8 +17,7 @@ import {
   loadSession,
 } from "@/lib/session-cache";
 import {
-  EMPTY_SPEC,
-  TAXONOMY,
+  EMPTY_SUMMARY_SPEC,
   createEmptyAnalysisProgress,
   type AnalysisProgress,
   type AnalysisSection,
@@ -58,7 +56,6 @@ function isAnalysisEvent(item: unknown): item is Record<string, unknown> {
 }
 
 export function ChatContainer() {
-  // Load cached session once on first render
   const [initialCache] = useState(() => {
     const cached = loadSession();
     if (!cached) return null;
@@ -71,10 +68,7 @@ export function ChatContainer() {
   );
   const [specMeta, setSpecMeta] = useState<SpecMetadata>(
     initialCache?.cached.specMeta ?? {
-      spec: { ...EMPTY_SPEC },
-      active_characteristic: null,
-      policy_name: null,
-      policy_description: null,
+      spec: { ...EMPTY_SUMMARY_SPEC },
     },
   );
   const [proposedSubGroups, setProposedSubGroups] =
@@ -121,8 +115,6 @@ export function ChatContainer() {
   const streamingSectionRef = useRef(streamingSection);
   streamingSectionRef.current = streamingSection;
 
-  // Tracks the section that was streaming when it completed, so we can tell
-  // whether the user was following the stream or navigated elsewhere.
   const lastStreamedSectionRef = useRef<string | null>(null);
 
   const lastProcessedDataIdx = useRef(-1);
@@ -302,7 +294,6 @@ export function ChatContainer() {
     lastProcessedDataIdx.current = data.length - 1;
   }, [data, setMessages, analysisSections.size]);
 
-  // Restore cached messages on mount (useChat manages its own messages state)
   useEffect(() => {
     if (!initialCache) return;
     const { cached, wasInterrupted } = initialCache;
@@ -326,10 +317,8 @@ export function ChatContainer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist session state to localStorage (debounced)
   const skipSaveRef = useRef(!!initialCache);
   useEffect(() => {
-    // Skip the first save triggered by initial state hydration
     if (skipSaveRef.current) {
       skipSaveRef.current = false;
       return;
@@ -363,10 +352,7 @@ export function ChatContainer() {
     setMessages([]);
     setStage("specifying");
     setSpecMeta({
-      spec: { ...EMPTY_SPEC },
-      active_characteristic: null,
-      policy_name: null,
-      policy_description: null,
+      spec: { ...EMPTY_SUMMARY_SPEC },
     });
     setData(undefined);
     setProposedSubGroups(null);
@@ -382,11 +368,7 @@ export function ChatContainer() {
 
   const handleProceed = useCallback(() => {
     const currentMeta = specMetaRef.current;
-    const md = buildSpecMarkdown(
-      currentMeta.spec,
-      currentMeta.policy_name,
-      TAXONOMY,
-    );
+    const md = buildSpecMarkdown(currentMeta.spec);
     const specBlock = buildSpecBlock(currentMeta);
     const confirmationContent = md + specBlock;
 
@@ -468,16 +450,13 @@ export function ChatContainer() {
     [append],
   );
 
-  const handleInsertHint = useCallback(
-    (text: string) => {
-      setInput((prev: string) => (prev ? `${prev}, ${text}` : text));
-    },
-    [setInput],
-  );
-
   const handleSelectSection = useCallback((sectionId: string) => {
     setActiveSection(sectionId);
   }, []);
+
+  // --- Layout logic ---
+  const hasSummary = !!specMeta.spec.policy_summary;
+  const showArtifacts = hasSummary || analysisSections.size > 0;
 
   const analysisRunning =
     analysisProgress.steps.some(
@@ -485,72 +464,40 @@ export function ChatContainer() {
         (s.step === "subgroup" || s.step === "synthesis") &&
         (s.status === "active" || s.status === "complete" || s.status === "error"),
     );
-  const showAnalysisView = analysisSections.size > 0;
-  const scanOrSelectionPhase =
-    stage === "analysing" && analysisSections.size > 0 && !analysisRunning;
-  const showSplitView =
-    (stage === "chatting" && analysisSections.size > 0) || scanOrSelectionPhase;
+
+  const chatWidth = !showArtifacts
+    ? "flex-1"
+    : stage === "specifying"
+      ? "w-[60%]"
+      : stage === "analysing"
+        ? "w-[35%]"
+        : "w-[40%]";
+
+  const artifactsWidth = stage === "specifying"
+    ? "w-[40%]"
+    : stage === "analysing"
+      ? "w-[65%]"
+      : "w-[60%]";
+
+  const chatDisabled = stage === "analysing" && (isLoading || analysisRunning);
+
+  const policySummary = specMeta.spec.policy_summary
+    ? {
+        name: specMeta.spec.policy_name || "Policy Summary",
+        summary: specMeta.spec.policy_summary,
+        openQuestions: specMeta.spec.open_questions,
+      }
+    : null;
 
   return (
     <div className="flex h-screen flex-col">
       <Header onNewSession={handleNewSession} stage={stage} />
       <div className="flex min-h-0 flex-1">
-        {/* Main content area */}
-        <div className="flex min-w-0 flex-1">
-          {showAnalysisView && (
-            <div
-              className={`flex flex-col border-r border-[var(--color-border)] ${
-                showSplitView ? "w-[60%]" : "flex-1"
-              }`}
-            >
-              <AnalysisView
-                sections={analysisSections}
-                activeSection={activeSection}
-                streamingSection={streamingSection}
-              />
-            </div>
-          )}
-
-          {/* Chat column — full width when no analysis, 40% in split view, hidden during analysis-only */}
-          {(!showAnalysisView || showSplitView) && (
-            <div
-              className={`flex flex-col ${
-                showSplitView ? "w-[40%]" : "flex-1"
-              }`}
-            >
-              <MessageList
-                messages={messages}
-                isLoading={isLoading}
-                stage={stage}
-                onSelectPolicy={handleSelectPolicy}
-              />
-              <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
-                {stage === "specifying" && (
-                  <div className="mx-auto max-w-3xl px-6 pt-3">
-                    <TaxonomyHints
-                      activeCharacteristic={specMeta.active_characteristic}
-                      onInsertHint={handleInsertHint}
-                    />
-                  </div>
-                )}
-                <ChatInput
-                  input={input}
-                  isLoading={isLoading}
-                  onInputChange={handleInputChange}
-                  onSubmit={handleSubmit}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Sidebar */}
+        {/* Sidebar (left, fixed width) */}
         <SpecificationSidebar
           spec={specMeta.spec}
           stage={stage}
-          activeCharacteristic={specMeta.active_characteristic}
-          policyName={specMeta.policy_name}
-          policyDescription={specMeta.policy_description}
+          policyName={specMeta.spec.policy_name}
           onProceed={handleProceed}
           proposedSubGroups={proposedSubGroups}
           confirmedSubGroups={confirmedSubGroups}
@@ -562,6 +509,40 @@ export function ChatContainer() {
           evidenceSearchCount={evidenceSearchCount}
           onSelectSection={handleSelectSection}
         />
+
+        {/* Chat (centre, always present) */}
+        <div className={`flex flex-col ${chatWidth}`}>
+          <MessageList
+            messages={messages}
+            isLoading={isLoading}
+            stage={stage}
+            onSelectPolicy={handleSelectPolicy}
+          />
+          <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+            <ChatInput
+              input={input}
+              isLoading={isLoading}
+              disabled={chatDisabled}
+              disabledPlaceholder="Analysis in progress — follow-up questions available when complete"
+              onInputChange={handleInputChange}
+              onSubmit={handleSubmit}
+            />
+          </div>
+        </div>
+
+        {/* Artifacts panel (right, conditional) */}
+        {showArtifacts && (
+          <div
+            className={`flex flex-col border-l border-[var(--color-border)] ${artifactsWidth}`}
+          >
+            <AnalysisView
+              policySummary={policySummary}
+              sections={analysisSections}
+              activeSection={activeSection}
+              streamingSection={streamingSection}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

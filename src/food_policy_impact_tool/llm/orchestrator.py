@@ -98,40 +98,44 @@ def _format_tool_evidence(results: list[RetrievalResult]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
+_TAXONOMY_LABELS: dict[str, str] = {
+    "policy_lever": "Policy lever",
+    "in_scope_businesses": "In-scope businesses",
+    "business_size": "Business size",
+    "delivery_channel": "Delivery channel",
+    "population": "Population",
+    "geography": "Geography",
+}
+
+
 def _format_spec_state(spec_state: dict[str, Any] | None) -> str:
     """Format the current specification state for injection into the Socratic prompt."""
     if not spec_state:
         return "No specification state established yet — this is the start of the conversation."
 
-    lines: list[str] = []
     spec = spec_state.get("spec", {})
-    for key, label in [
-        ("policy_lever", "Policy lever"),
-        ("in_scope_businesses", "In-scope businesses"),
-        ("business_size", "Business size"),
-        ("delivery_channel", "Delivery channel"),
-        ("population", "Population"),
-        ("geography", "Geography"),
-    ]:
-        entry = spec.get(key, {})
-        source = entry.get("source", "empty")
-        values = entry.get("values", [])
-        if source == "not_applicable":
-            rationale = entry.get("rationale", "")
-            suffix = f" ({rationale})" if rationale else ""
-            lines.append(f"- {label}: not applicable{suffix}")
-            continue
-        if source == "empty" or not values:
-            lines.append(f"- {label}: not yet discussed")
-        else:
-            val_str = "; ".join(values)
-            rationale = entry.get("rationale", "")
-            suffix = f" (assumption: {rationale})" if source == "assumed" and rationale else ""
-            lines.append(f"- {label}: {val_str} [{source}]{suffix}")
+    lines: list[str] = []
 
-    policy_name = spec_state.get("policy_name")
+    policy_name = spec.get("policy_name")
     if policy_name:
-        lines.insert(0, f"Policy: {policy_name}")
+        lines.append(f"Policy: {policy_name}")
+
+    summary = spec.get("policy_summary")
+    if summary:
+        lines.append(f"\n{summary}")
+
+    taxonomy = spec.get("taxonomy_mapping", {})
+    if taxonomy:
+        lines.append("\nTaxonomy dimensions identified so far:")
+        for key, values in taxonomy.items():
+            label = _TAXONOMY_LABELS.get(key, key.replace("_", " ").title())
+            lines.append(f"- {label}: {', '.join(values)}")
+
+    questions = spec.get("open_questions", [])
+    if questions:
+        lines.append("\nQuestions for the analysis to consider:")
+        for q in questions:
+            lines.append(f"- {q}")
 
     return "\n".join(lines)
 
@@ -192,7 +196,7 @@ def _extract_policy_spec_from_history(messages: list[ChatMessage]) -> str:
     """Scan conversation history for the <policy_spec> block and return formatted text.
 
     Looks backwards through messages for the spec confirmation message that
-    contains the structured policy specification.
+    contains the structured policy specification (free-form summary + taxonomy).
     """
     for msg in reversed(messages):
         match = _SPEC_BLOCK_PATTERN.search(msg.content)
@@ -200,31 +204,24 @@ def _extract_policy_spec_from_history(messages: list[ChatMessage]) -> str:
             try:
                 parsed = json.loads(match.group(1).strip())
                 spec = parsed.get("spec", {})
-                policy_name = parsed.get("policy_name", "Unknown policy")
-                policy_desc = parsed.get("policy_description", "")
+                policy_name = spec.get("policy_name", "Unknown policy")
+                summary = spec.get("policy_summary", "")
 
                 lines = [f"**Policy**: {policy_name}"]
-                if policy_desc:
-                    lines.append(f"**Description**: {policy_desc}")
-                lines.append("")
+                if summary:
+                    lines.append(f"\n{summary}")
 
-                for key, label in [
-                    ("policy_lever", "Policy lever"),
-                    ("in_scope_businesses", "In-scope businesses"),
-                    ("business_size", "Business size"),
-                    ("delivery_channel", "Delivery channel"),
-                    ("population", "Population"),
-                    ("geography", "Geography"),
-                ]:
-                    entry = spec.get(key, {})
-                    values = entry.get("values", [])
-                    source = entry.get("source", "empty")
-                    if source == "not_applicable":
-                        lines.append(f"- {label}: N/A")
-                    elif values:
-                        lines.append(f"- {label}: {'; '.join(values)}")
-                    else:
-                        lines.append(f"- {label}: Not specified")
+                taxonomy = spec.get("taxonomy_mapping", {})
+                if taxonomy:
+                    dims = []
+                    for key, values in taxonomy.items():
+                        label = _TAXONOMY_LABELS.get(key, key.replace("_", " ").title())
+                        dims.append(f"{label}: {', '.join(values)}")
+                    lines.append(f"\nRelevant taxonomy dimensions: {'; '.join(dims)}.")
+
+                questions = spec.get("open_questions", [])
+                if questions:
+                    lines.append(f"\nOpen questions: {'; '.join(questions)}.")
 
                 return "\n".join(lines)
             except (json.JSONDecodeError, KeyError):

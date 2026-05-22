@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  HelpCircle,
   Play,
   Search,
   X,
@@ -17,20 +18,16 @@ import type {
   AnalysisProgress,
   AnalysisStep,
   ConversationStage,
-  PolicySpecification,
+  PolicySummarySpec,
   ProposedSubGroups,
   SubGroup,
 } from "@/lib/types";
-import { TAXONOMY } from "@/lib/types";
-import { filledCount } from "@/lib/spec-helpers";
-import { SpecificationRow } from "./SpecificationRow";
+import { TAXONOMY_LABELS } from "@/lib/types";
 
 interface SpecificationSidebarProps {
-  spec: PolicySpecification;
+  spec: PolicySummarySpec;
   stage: ConversationStage;
-  activeCharacteristic: string | null | undefined;
   policyName: string | null | undefined;
-  policyDescription: string | null | undefined;
   onProceed: () => void;
   proposedSubGroups?: ProposedSubGroups | null;
   confirmedSubGroups?: SubGroup[] | null;
@@ -51,9 +48,15 @@ function CompactSpecView({
   spec,
   policyName,
 }: {
-  spec: PolicySpecification;
+  spec: PolicySummarySpec;
   policyName: string | null | undefined;
 }) {
+  const truncatedSummary = spec.policy_summary
+    ? spec.policy_summary.length > 120
+      ? spec.policy_summary.slice(0, 120) + "…"
+      : spec.policy_summary
+    : null;
+
   return (
     <div className="border-b border-[var(--color-border)] px-4 py-3">
       <div className="flex items-center justify-between">
@@ -69,26 +72,49 @@ function CompactSpecView({
           {policyName}
         </p>
       )}
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        {(
-          Object.entries(TAXONOMY) as [
-            keyof PolicySpecification,
-            (typeof TAXONOMY)[keyof typeof TAXONOMY],
-          ][]
-        ).map(([key, meta]) => {
-          const val = spec[key];
-          if (val.source === "empty" || val.values.length === 0) return null;
-          return (
-            <span
-              key={key}
-              className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)]"
-              title={`${meta.label}: ${val.values.join(", ")}`}
-            >
-              {meta.label}
-            </span>
-          );
-        })}
-      </div>
+      {truncatedSummary && (
+        <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
+          {truncatedSummary}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Taxonomy pills — compact display of mapped dimensions
+// ---------------------------------------------------------------------------
+
+function TaxonomyPills({
+  taxonomyMapping,
+}: {
+  taxonomyMapping: Record<string, string[]>;
+}) {
+  const entries = Object.entries(taxonomyMapping);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {entries.map(([key, values]) => {
+        const label = TAXONOMY_LABELS[key] || key.replace(/_/g, " ");
+        return (
+          <div key={key}>
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              {label}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {values.map((value, i) => (
+                <span
+                  key={i}
+                  className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)]"
+                >
+                  {value}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -293,9 +319,7 @@ function SubGroupSection({
 export function SpecificationSidebar({
   spec,
   stage,
-  activeCharacteristic,
   policyName,
-  policyDescription,
   onProceed,
   proposedSubGroups,
   confirmedSubGroups,
@@ -307,15 +331,9 @@ export function SpecificationSidebar({
   evidenceSearchCount,
   onSelectSection,
 }: SpecificationSidebarProps) {
-  const filled = filledCount(spec);
-  const total = Object.keys(TAXONOMY).length;
-  const mostFilled = filled >= total - 1;
   const isSpecifying = stage === "specifying";
   const isAnalysing = stage === "analysing";
   const isChatting = stage === "chatting";
-  const hasSpec = filled > 0;
-
-  if (!isSpecifying && !isAnalysing && !isChatting && !hasSpec) return null;
 
   const steps = analysisProgress?.steps ?? [];
 
@@ -333,7 +351,6 @@ export function SpecificationSidebar({
   const subGroupsEditable =
     isAnalysing && hasSubGroups && !hasAnalysisStarted;
 
-  // Compute scan summary from relevance_scan data
   let scanSummary: string | null = null;
   if (
     scanStep?.status === "complete" &&
@@ -350,13 +367,12 @@ export function SpecificationSidebar({
   // --- Analysing / chatting: unified progressive sidebar ---
   if (isAnalysing || (isChatting && steps.length > 0)) {
     return (
-      <aside className="flex h-full w-80 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
+      <aside className="flex h-full w-80 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
         <CompactSpecView spec={spec} policyName={policyName} />
 
         <div className="flex-1 overflow-y-auto">
           {/* Stepper area */}
           <div className="p-4">
-            {/* Scan step */}
             {scanStep && (
               <StepEntry
                 status={scanStep.status}
@@ -374,7 +390,6 @@ export function SpecificationSidebar({
             )}
           </div>
 
-          {/* Sub-groups section — between scan and detailed analysis */}
           {hasSubGroups && (
             <SubGroupSection
               subGroups={confirmedSubGroups!}
@@ -384,7 +399,6 @@ export function SpecificationSidebar({
             />
           )}
 
-          {/* Analysis steps (sub-groups + synthesis) */}
           {analysisSteps.length > 0 && (
             <div className="p-4">
               {analysisSteps.map((step, i) => {
@@ -433,7 +447,6 @@ export function SpecificationSidebar({
             </div>
           )}
 
-          {/* Time estimate */}
           {hasAnalysisStarted && !isComplete && (
             <div className="px-4 pb-3 pt-1">
               <p className="text-[11px] text-[var(--color-text-muted)]">
@@ -443,7 +456,6 @@ export function SpecificationSidebar({
             </div>
           )}
 
-          {/* Completion banner */}
           {isComplete && (
             <div className="px-4 pb-4">
               <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-center text-xs font-medium text-green-700">
@@ -453,7 +465,6 @@ export function SpecificationSidebar({
           )}
         </div>
 
-        {/* Run analysis button — pinned at bottom during selection */}
         {subGroupsEditable && (
           <div className="border-t border-[var(--color-border)] p-4">
             <button
@@ -472,51 +483,37 @@ export function SpecificationSidebar({
     );
   }
 
-  // --- Specifying stage: full spec rows + proceed button ---
+  // --- Specifying stage: policy summary status + taxonomy pills + proceed button ---
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
+    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="border-b border-[var(--color-border)] px-4 py-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--color-text)]">
-            Policy Specification
-          </h2>
-          {!isSpecifying && (
-            <span className="rounded-full bg-[var(--color-bg)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]">
-              Confirmed
-            </span>
-          )}
-        </div>
+        <h2 className="text-sm font-semibold text-[var(--color-text)]">
+          Policy Specification
+        </h2>
         {policyName && (
           <p className="mt-0.5 text-sm font-medium text-[var(--color-text)]">
             {policyName}
           </p>
         )}
-        {policyDescription && (
-          <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
-            {policyDescription}
-          </p>
-        )}
-        {isSpecifying && (
-          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-            {filled} of {total} characteristics specified
-          </p>
-        )}
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-4">
-        {(
-          Object.entries(TAXONOMY) as [
-            keyof PolicySpecification,
-            (typeof TAXONOMY)[keyof typeof TAXONOMY],
-          ][]
-        ).map(([key, meta]) => (
-          <SpecificationRow
-            key={key}
-            label={meta.label}
-            value={spec[key]}
-            isActive={isSpecifying && activeCharacteristic === key}
-          />
-        ))}
+      <div className="flex-1 overflow-y-auto p-4">
+        {Object.keys(spec.taxonomy_mapping).length > 0 ? (
+          <TaxonomyPills taxonomyMapping={spec.taxonomy_mapping} />
+        ) : (
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Describe a policy in the chat to begin specification.
+          </p>
+        )}
+
+        {spec.open_questions.length > 0 && (
+          <div className="mt-4 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+            <HelpCircle size={12} />
+            <span>
+              {spec.open_questions.length} question{spec.open_questions.length !== 1 ? "s" : ""} for the analysis
+            </span>
+          </div>
+        )}
       </div>
 
       {isSpecifying && (
@@ -524,12 +521,12 @@ export function SpecificationSidebar({
           <button
             onClick={onProceed}
             className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-              mostFilled
+              spec.ready_for_analysis
                 ? "bg-[var(--color-accent)] text-white hover:opacity-90"
                 : "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
             }`}
           >
-            {mostFilled ? (
+            {spec.ready_for_analysis ? (
               <CheckCircle2 size={16} />
             ) : (
               <ArrowRight size={16} />

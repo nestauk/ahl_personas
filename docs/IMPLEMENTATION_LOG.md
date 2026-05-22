@@ -597,3 +597,148 @@ None.
 - No persistence of analyses across sessions
 - No authentication or user management
 - No tests
+
+---
+
+## 2026-05-22 — Dynamic Policy Specification
+
+### What was done
+
+Replaced the fixed 6-field taxonomy-driven policy specification with a free-form, conversation-driven approach. The Socratic conversation now produces a natural language policy summary (the primary artifact) and a lightweight taxonomy annotation (secondary, for the analysis engine), rather than filling in 6 predefined fields.
+
+### Why
+
+The fixed taxonomy (policy lever, in-scope businesses, business size, delivery channel, population, geography) forced every conversation through the same structure regardless of the policy being described. A GLP-1 medication policy doesn't naturally map to "in-scope businesses" or "business size". A rough concept like "do something about food prices for struggling families" doesn't need 6 fields filled before an analysis can begin. The taxonomy was creating friction rather than aiding comprehension.
+
+The taxonomy remains useful as an analytical lens — the relevance scan's heuristic mapping (policy lever → financial modifiers, delivery channel → geography modifiers, etc.) depends on knowing these dimensions. But the conversation shouldn't be structured around filling them in.
+
+### Design decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Primary specification output | Natural language policy summary | Captures nuance, mechanism detail, and scope in a form that works for any type of food environment policy — not constrained to 6 predefined categories |
+| Taxonomy role | Soft conversational guide + structured annotation for analysis engine | The taxonomy dimensions are mentioned as "often relevant" in the prompt, not as fields to fill. The LLM maps to whichever dimensions apply and omits irrelevant ones |
+| Conversation depth | Adaptive — no hardcoded exchange count | Well-specified inputs may need zero clarifying questions. Rough concepts may need 3-5 exchanges. The LLM judges readiness based on the policy's specificity |
+| Readiness signal | LLM-set `ready_for_analysis` boolean + button always clickable as override | Replaces the old `filledCount >= 5` heuristic. The analyst can always proceed early |
+| Open questions framing | "Questions for the analysis to consider" — not gaps to fill | These are directions the equity analysis should explore, not specification failures |
+| Layout order | Sidebar (left) → Chat (centre) → Artifacts panel (right) | Left-to-right workflow: navigate → interact → read output. Chat always present, never hidden |
+| Chat during analysis | Input disabled with explanatory placeholder, history visible | Analyst can reference the Socratic conversation while watching the analysis build |
+| Policy summary display | Artifacts panel, rendered from `specMeta` state (not streamed) | The summary is extracted from the `<policy_spec>` JSON block after each response — it's state, not streaming content. No new event type needed |
+| Width ratios | Stage-dependent: specifying 60/40, analysing 35/65, chatting 40/60 | Chat-dominant during active conversation, artifacts-dominant during analysis |
+
+### New `<policy_spec>` payload shape
+
+The `<policy_spec>` JSON block produced by the Socratic prompt changed from 6 structured `SpecValue` fields to:
+
+```json
+{
+  "spec": {
+    "policy_name": "Essential food basket price cap",
+    "policy_summary": "This policy introduces price ceilings on a defined basket of essential food items...",
+    "taxonomy_mapping": {
+      "policy_lever": ["Price"],
+      "in_scope_businesses": ["Retailers", "Convenience stores"],
+      "geography": ["England"]
+    },
+    "open_questions": [
+      "Enforcement mechanism not defined",
+      "Basket composition not finalised"
+    ],
+    "ready_for_analysis": true
+  }
+}
+```
+
+`taxonomy_mapping` only includes dimensions that are relevant — omits inapplicable ones rather than marking them as "not applicable" or "empty". Values are free-form strings, not constrained to predefined options.
+
+### Layout restructure
+
+Reordered from `AnalysisView | Chat | Sidebar` to `Sidebar | Chat | AnalysisView`:
+
+- **Sidebar (left, fixed `w-80`)**: Always present. During specifying: policy name, taxonomy pills, open questions count, proceed button. During analysis: compact spec view, stepper, sub-groups.
+- **Chat (centre, always present)**: Never hidden. During analysis, input disabled with placeholder "Analysis in progress — follow-up questions available when complete". Conversation history remains scrollable.
+- **Artifacts panel (right, conditional)**: Appears when policy summary exists or analysis sections exist. Shows policy summary as first section, then analysis sections.
+
+Width ratios adapt by stage (chat/artifacts split, excluding fixed sidebar):
+- Specifying (no summary): chat 100%
+- Specifying (summary exists): chat 60%, artifacts 40%
+- Analysis running: chat 35%, artifacts 65%
+- Follow-up chatting: chat 40%, artifacts 60%
+
+### How the analysis engine consumes the new format
+
+`_extract_policy_spec_from_history()` in the orchestrator now formats the spec for analysis prompts as:
+
+```
+**Policy**: Essential food basket price cap
+
+This policy introduces price ceilings on a defined basket of essential food items...
+
+Relevant taxonomy dimensions: Policy lever: Price; In-scope businesses: Retailers, Convenience stores; Geography: England.
+
+Open questions: Enforcement mechanism not defined; Basket composition not finalised.
+```
+
+The heuristic mapping in `analysis_scan.md` works from this — it matches concepts (pricing → financial modifiers, retailers → geography modifiers) regardless of whether the input is structured fields or natural language. An additional instruction was added: "If the policy summary does not explicitly address all taxonomy dimensions, consider all plausible interpretations and flag the ambiguity."
+
+The subgroup and synthesis prompts consume `{{POLICY_SPECIFICATION}}` as opaque context — they are unaffected by the format change.
+
+### Backend changes
+
+**`models/chat.py`** — Replaced `SpecValue`, `PolicySpecification` with `PolicySummarySpec` (policy_name, policy_summary, taxonomy_mapping, open_questions, ready_for_analysis). `SpecMetadata` now wraps `PolicySummarySpec`. Removed `SpecSource` type.
+
+**`orchestrator.py`** — Three functions rewritten:
+- `_format_spec_state()`: formats policy summary + taxonomy mapping + open questions as text for `{{CURRENT_SPEC_STATE}}` injection (was: 6-field iteration)
+- `_extract_policy_spec_from_history()`: formats summary + taxonomy annotation + open questions for analysis prompt injection (was: 6-field bullet list)
+- `_extract_spec_from_response()`: unchanged mechanism (regex + Pydantic validation), validates against new model shape
+
+**`prompts/socratic.md`** — Full rewrite:
+- Free-form conversation driven by the policy, not a checklist
+- Adaptive depth: zero questions for well-specified inputs, multiple exchanges for rough concepts
+- Soft taxonomy guide as background mental checklist
+- Explicit instruction not to probe enforcement, implementation, funding, or review details
+- Open questions framed as directions for the analysis, not gaps
+- Two worked examples (well-specified voucher policy, rough GLP-1 concept)
+- New `<policy_spec>` JSON output format
+
+**`prompts/analysis_scan.md`** — Added instruction about missing taxonomy dimensions after `{{POLICY_SPECIFICATION}}` injection point.
+
+### Frontend changes
+
+**`lib/types.ts`** — New `PolicySummarySpec` interface, `TAXONOMY_LABELS` constant (labels only, no options), `EMPTY_SUMMARY_SPEC`. Removed `SpecSource`, `SpecValue`, `PolicySpecification`, `TAXONOMY`, `EMPTY_SPEC`.
+
+**`lib/spec-helpers.ts`** — `buildSpecMarkdown()` rewritten for summary format. Removed `filledCount()`, `remainingCount()`.
+
+**`lib/session-cache.ts`** — `CACHE_VERSION` incremented to 2 (old sessions discarded).
+
+**`components/chat/ChatContainer.tsx`** — Major changes:
+- Layout reordered: sidebar (left) → chat (centre) → artifacts panel (right)
+- Chat always rendered, never hidden. `ChatInput` receives `disabled` + `disabledPlaceholder` props
+- Stage-based width ratios for chat/artifacts split
+- `specMeta` state uses new `EMPTY_SUMMARY_SPEC` shape
+- `policySummary` prop passed to `AnalysisView` (derived from `specMeta.spec`)
+- Removed `TaxonomyHints` and `active_characteristic` tracking
+
+**`components/chat/ChatInput.tsx`** — Added `disabled` and `disabledPlaceholder` props. Visual dimming when disabled.
+
+**`components/analysis/AnalysisView.tsx`** — Added `policySummary` prop. Renders policy summary as first section with "For the analysis to consider" heading for open questions. Falls back to policy summary when no active section selected.
+
+**`components/specification/SpecificationSidebar.tsx`** — Major rewrite:
+- Now left-positioned (`border-r` instead of `border-l`)
+- Specifying stage: policy name, `TaxonomyPills` component (compact pills per dimension), "N questions for the analysis" indicator, `ready_for_analysis`-based button prominence
+- `CompactSpecView`: truncated summary text instead of taxonomy pills
+- Removed: `filledCount`, `TAXONOMY` iteration, progress counter, `mostFilled` logic, `SpecificationRow` import
+
+### Files deleted
+
+- `frontend/src/components/specification/SpecificationRow.tsx` — no longer needed without fixed fields
+- `frontend/src/components/chat/TaxonomyHints.tsx` — no longer needed without `active_characteristic` and predefined options
+
+### What has NOT been implemented yet
+
+- No deliberation layer beyond what's in the provocations section
+- No multi-turn analysis refinement
+- No export of analysis outputs (PDF, Word)
+- No persistence of analyses across sessions
+- No authentication or user management
+- No tests

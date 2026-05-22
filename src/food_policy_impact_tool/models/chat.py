@@ -5,32 +5,20 @@ from pydantic import BaseModel
 ConversationStage = Literal["specifying", "analysing", "chatting"]
 
 
-class SpecValue(BaseModel):
-    """A single characteristic's value in the policy specification."""
+class PolicySummarySpec(BaseModel):
+    """Free-form policy specification produced by the Socratic conversation."""
 
-    values: list[str] = []
-    source: Literal["analyst", "assumed", "unspecified", "not_applicable", "empty"] = "empty"
-    rationale: str | None = None
-
-
-class PolicySpecification(BaseModel):
-    """The full policy specification mapped to the characteristics taxonomy."""
-
-    policy_lever: SpecValue = SpecValue()
-    in_scope_businesses: SpecValue = SpecValue()
-    business_size: SpecValue = SpecValue()
-    delivery_channel: SpecValue = SpecValue()
-    population: SpecValue = SpecValue()
-    geography: SpecValue = SpecValue()
+    policy_name: str | None = None
+    policy_summary: str | None = None
+    taxonomy_mapping: dict[str, list[str]] = {}
+    open_questions: list[str] = []
+    ready_for_analysis: bool = False
 
 
 class SpecMetadata(BaseModel):
-    """Specification state plus metadata extracted from LLM responses."""
+    """Wrapper emitted as a data-stream event so the frontend can update state."""
 
-    spec: PolicySpecification = PolicySpecification()
-    active_characteristic: str | None = None
-    policy_name: str | None = None
-    policy_description: str | None = None
+    spec: PolicySummarySpec = PolicySummarySpec()
 
 
 class ChatMessage(BaseModel):

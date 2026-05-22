@@ -144,9 +144,11 @@ Use this as a structured starting point for the relevance scan. Always check the
 
 ## Policy specification
 
-The following policy has been fully specified through the Socratic questioning stage:
+The following policy has been specified through the Socratic questioning stage:
 
 {{POLICY_SPECIFICATION}}
+
+If the policy summary does not explicitly address all taxonomy dimensions (lever, delivery channel, business scope, geography, population), consider all plausible interpretations and flag the ambiguity in your reasoning.
 
 ## Output format
 

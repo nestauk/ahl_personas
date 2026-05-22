@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "ahl-session";
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 export interface CachedSession {
   version: number;

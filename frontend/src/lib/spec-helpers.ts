@@ -1,68 +1,33 @@
-import type { PolicySpecification, SpecMetadata, TAXONOMY } from "./types";
+import type { PolicySummarySpec, SpecMetadata } from "./types";
+import { TAXONOMY_LABELS } from "./types";
 
 /**
- * Build a human-readable markdown specification table from the spec state.
+ * Build a human-readable markdown summary from the spec state.
  * Used when the analyst clicks "Proceed to analysis" to generate the
  * confirmation message inserted into chat.
  */
-export function buildSpecMarkdown(
-  spec: PolicySpecification,
-  policyName: string | null | undefined,
-  taxonomy: typeof TAXONOMY,
-): string {
-  const title = policyName || "Untitled Policy";
-  const rows: string[] = [];
-  const assumptions: string[] = [];
-  const unspecified: string[] = [];
-
-  for (const [key, meta] of Object.entries(taxonomy)) {
-    const entry = spec[key as keyof PolicySpecification];
-    const label = meta.label;
-
-    let valueStr: string;
-    let sourceStr: string;
-
-    switch (entry.source) {
-      case "analyst":
-        valueStr = entry.values.join("; ") || "—";
-        sourceStr = "Analyst";
-        break;
-      case "assumed":
-        valueStr = entry.values.join("; ") || "—";
-        sourceStr = "Assumption";
-        if (entry.rationale) {
-          assumptions.push(`- ${label}: ${valueStr} — ${entry.rationale}`);
-        }
-        break;
-      case "unspecified":
-        valueStr = "Not specified";
-        sourceStr = "Unspecified";
-        unspecified.push(`- ${label}`);
-        break;
-      case "not_applicable":
-        valueStr = "N/A";
-        sourceStr = "N/A";
-        break;
-      default:
-        valueStr = "—";
-        sourceStr = "Not discussed";
-        unspecified.push(`- ${label}: not yet discussed`);
-    }
-
-    rows.push(`| ${label} | ${valueStr} | ${sourceStr} |`);
-  }
-
+export function buildSpecMarkdown(spec: PolicySummarySpec): string {
+  const title = spec.policy_name || "Untitled Policy";
   let md = `## Policy Specification: ${title}\n\n`;
-  md += "| Characteristic | Value | Source |\n";
-  md += "|---|---|---|\n";
-  md += rows.join("\n") + "\n";
 
-  if (assumptions.length > 0) {
-    md += `\n**Assumptions made:**\n${assumptions.join("\n")}\n`;
+  if (spec.policy_summary) {
+    md += `${spec.policy_summary}\n`;
   }
 
-  if (unspecified.length > 0) {
-    md += `\n**Unspecified / open questions:**\n${unspecified.join("\n")}\n`;
+  const entries = Object.entries(spec.taxonomy_mapping);
+  if (entries.length > 0) {
+    md += "\n**Taxonomy dimensions:**\n";
+    for (const [key, values] of entries) {
+      const label = TAXONOMY_LABELS[key] || key.replace(/_/g, " ");
+      md += `- ${label}: ${values.join(", ")}\n`;
+    }
+  }
+
+  if (spec.open_questions.length > 0) {
+    md += "\n**For the analysis to consider:**\n";
+    for (const q of spec.open_questions) {
+      md += `- ${q}\n`;
+    }
   }
 
   return md;
@@ -70,25 +35,9 @@ export function buildSpecMarkdown(
 
 /**
  * Build the <policy_spec> JSON block in the same format the LLM produces.
- * Appended to the "Proceed to analysis" message so Phase 3 can parse it
- * consistently from conversation history.
+ * Appended to the "Proceed to analysis" message so the analysis stage can
+ * parse it consistently from conversation history.
  */
 export function buildSpecBlock(specMeta: SpecMetadata): string {
   return `\n<policy_spec>\n${JSON.stringify(specMeta, null, 2)}\n</policy_spec>`;
-}
-
-/**
- * Count how many characteristics have a non-empty source.
- */
-export function filledCount(spec: PolicySpecification): number {
-  return Object.values(spec).filter(
-    (v) => v.source !== "empty",
-  ).length;
-}
-
-/**
- * Count characteristics that still need resolution (excludes N/A and filled).
- */
-export function remainingCount(spec: PolicySpecification): number {
-  return Object.values(spec).filter((v) => v.source === "empty").length;
 }
