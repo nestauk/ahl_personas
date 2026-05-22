@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import type { AnalysisSection } from "@/lib/types";
 import { AnalysisSectionPanel } from "./AnalysisSectionPanel";
 
@@ -58,27 +58,18 @@ export function AnalysisView({
 
   const section = effectiveSection ? sections.get(effectiveSection) : null;
 
-  if (!section) {
-    if (policySummary) {
-      return (
-        <div className="flex flex-1 flex-col">
-          <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-8 py-3">
-            <h2 className="text-sm font-semibold text-[var(--color-text)]">
-              {policySummary.name}
-            </h2>
-            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-              Summary of the policy being analysed — updates as the conversation progresses.
-            </p>
-          </div>
-          <AnalysisSectionPanel
-            key="policy_summary_fallback"
-            content={buildSummaryContent(policySummary)}
-            isStreaming={false}
-          />
+  if (!section && effectiveSection && effectiveSection !== "policy_summary") {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <div className="text-center text-sm text-[var(--color-text-muted)]">
+          <Loader2 size={28} className="mx-auto mb-3 animate-spin opacity-40" />
+          <p>Preparing analysis…</p>
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
+  if (!section) {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center text-sm text-[var(--color-text-muted)]">

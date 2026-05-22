@@ -47,10 +47,14 @@ interface SpecificationSidebarProps {
 function CompactSpecView({
   spec,
   policyName,
+  onViewSummary,
 }: {
   spec: PolicySummarySpec;
   policyName: string | null | undefined;
+  onViewSummary?: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   const truncatedSummary = spec.policy_summary
     ? spec.policy_summary.length > 120
       ? spec.policy_summary.slice(0, 120) + "…"
@@ -58,24 +62,48 @@ function CompactSpecView({
     : null;
 
   return (
-    <div className="border-b border-[var(--color-border)] px-4 py-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-          Policy
-        </h2>
-        <span className="rounded-full bg-[var(--color-bg)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]">
-          Confirmed
-        </span>
-      </div>
-      {policyName && (
-        <p className="mt-0.5 text-sm font-medium text-[var(--color-text)]">
-          {policyName}
-        </p>
-      )}
-      {truncatedSummary && (
-        <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">
-          {truncatedSummary}
-        </p>
+    <div className="border-b border-[var(--color-border)]">
+      <button
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-[var(--color-bg)]"
+      >
+        {expanded ? (
+          <ChevronDown size={14} className="shrink-0 text-[var(--color-text-muted)]" />
+        ) : (
+          <ChevronRight size={14} className="shrink-0 text-[var(--color-text-muted)]" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Policy
+            </h2>
+            <span className="rounded-full bg-[var(--color-bg)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]">
+              Confirmed
+            </span>
+          </div>
+          {policyName && (
+            <p className="mt-0.5 text-sm font-medium text-[var(--color-text)]">
+              {policyName}
+            </p>
+          )}
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3">
+          {truncatedSummary && (
+            <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
+              {truncatedSummary}
+            </p>
+          )}
+          {onViewSummary && (
+            <button
+              onClick={onViewSummary}
+              className="mt-1.5 text-[11px] text-[var(--color-accent)] hover:underline"
+            >
+              View full summary
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -368,7 +396,11 @@ export function SpecificationSidebar({
   if (isAnalysing || (isChatting && steps.length > 0)) {
     return (
       <aside className="flex h-full w-80 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
-        <CompactSpecView spec={spec} policyName={policyName} />
+        <CompactSpecView
+          spec={spec}
+          policyName={policyName}
+          onViewSummary={() => onSelectSection?.("policy_summary")}
+        />
 
         <div className="flex-1 overflow-y-auto">
           {/* Stepper area */}

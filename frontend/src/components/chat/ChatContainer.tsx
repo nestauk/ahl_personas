@@ -8,7 +8,7 @@ import { MessageList } from "./MessageList";
 import { Header } from "../ui/Header";
 import { SpecificationSidebar } from "../specification/SpecificationSidebar";
 import { AnalysisView } from "../analysis/AnalysisView";
-import { buildSpecMarkdown, buildSpecBlock } from "@/lib/spec-helpers";
+import { buildSpecBlock } from "@/lib/spec-helpers";
 import {
   clearSession,
   debouncedSave,
@@ -368,9 +368,13 @@ export function ChatContainer() {
 
   const handleProceed = useCallback(() => {
     const currentMeta = specMetaRef.current;
-    const md = buildSpecMarkdown(currentMeta.spec);
+    const policyName = currentMeta.spec.policy_name || "the policy";
     const specBlock = buildSpecBlock(currentMeta);
-    const confirmationContent = md + specBlock;
+    const confirmationContent =
+      `Policy specification confirmed for **${policyName}**. ` +
+      `See the full summary in the artifacts panel. ` +
+      `Starting population relevance assessment.` +
+      specBlock;
 
     setMessages((prev) => [
       ...prev,
