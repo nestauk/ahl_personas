@@ -1245,3 +1245,43 @@ Zero extra LLM calls — `<summary_card>` JSON block appended at end of each art
 - `frontend/src/components/specification/SpecificationSidebar.tsx` — SG labels, phase subtitles, auto-expand/collapse SearchList, SubGroupSection sync, synthesis active status
 - `frontend/src/components/analysis/AnalysisView.tsx` — passes `summaryCards` and `sectionId` to panel
 - `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — renders `ArtifactSummaryCard`, strips tail blocks and normalises block breaks
+
+---
+
+## 2026-05-22 — QoL: Evidence search dropdowns, streaming badge popovers, and UI refinements
+
+### What was done
+
+Six quality-of-life improvements across the analysis workflow:
+
+1. **Evidence search dropdowns follow active subgroup** — `SearchList` in the sidebar now auto-expands when its subgroup step becomes active and auto-collapses when a different subgroup starts. Previously, the list only expanded while an evidence search was in-flight and collapsed as soon as the search completed (even while the same subgroup was still being analysed). Manual toggles are respected via a `userOverride` ref that resets when the active subgroup changes.
+
+2. **Badge popovers clickable during streaming** — `BadgePopoverManager` is now mounted during streaming (previously gated behind `!isStreaming`). Completed badges with `data-badge-detail` attributes are interactive mid-stream. To handle the unstable DOM (react-markdown re-renders the tree on each chunk), the badge's bounding rect is snapshotted at click time into a frozen virtual anchor object. The content-change effect that normally closes popovers is skipped during streaming, so the popover stays open at its original position until the user clicks outside.
+
+3. **"Structured output" header stripped from scan artefact** — Widened `STRUCTURED_OUTPUT_TAIL_REGEX` to catch standalone `## Structured Output` headings and colon-separated variants (`Part 3: Structured Output`), not just the narrow em-dash pattern and "requirement" suffix that the previous regex required.
+
+4. **Removed jarring artefact auto-switch** — All four auto-switch sites (scan step, scan content flush, subgroup step, synthesis step, synthesis content streaming) now only auto-select the artefact view when `activeSectionRef.current === null` — i.e. no section has been viewed yet. Once the user navigates to any section, the view stays put regardless of which analysis step starts next.
+
+5. **Fixed chat scroll during analysis streaming** — Replaced the `userScrolledUp` ref approach (which had a race condition between the scroll event handler and the streaming effect) with a direct `isNearBottom()` check within the effect. If the user is at the bottom, auto-scroll continues; if they've scrolled up, it stays put. Removed the forced scroll reset on new messages. Changed scroll behaviour from `"smooth"` to `"auto"` to avoid animation conflicts with rapid updates.
+
+6. **Removed "Typically takes 1–2 minutes" time estimate** — Deleted the time estimate banner from the sidebar and removed the unused `Clock` import.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| SearchList expand driver | `isStepActive` prop + `userOverride` ref | Decouples expand/collapse from the transient `activeQuery` signal. Auto-behaviour follows step lifecycle; manual toggles are preserved until the active step changes. |
+| Badge anchor during streaming | Snapshot `getBoundingClientRect()` at click time | The DOM element gets replaced on the next react-markdown re-render. A frozen rect keeps the popover positioned correctly without needing to re-find the element. |
+| Content-change close skip | `isStreamingRef.current` guard in the effect | Avoids stale closure issues (ref updated on every render). When streaming ends, the existing non-streaming behaviour resumes automatically. |
+| Auto-switch guard | `activeSectionRef.current === null` only | The previous `current === lastStreamed` condition auto-followed between sections, which was disorienting. Null-only guard means auto-switch only fires for the very first artefact in a session. |
+| Chat scroll approach | Direct `isNearBottom()` in effect, no event listener | Eliminates the race condition where the scroll event handler and the streaming effect competed. Synchronous DOM read within the effect is always accurate. |
+
+### Files modified
+
+**Frontend:**
+- `frontend/src/lib/grounding-badges.ts` — widened `STRUCTURED_OUTPUT_TAIL_REGEX` to match standalone and colon-variant "Structured Output" headings
+- `frontend/src/components/chat/ChatContainer.tsx` — replaced all auto-switch conditions with `activeSectionRef.current === null` guard (scan, subgroup, synthesis step activation and content routing)
+- `frontend/src/components/chat/MessageList.tsx` — replaced `userScrolledUp` ref and scroll event listener with direct `isNearBottom()` check; changed scroll behaviour to `"auto"`
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — `SearchList` now accepts `isStepActive` prop with `userOverride` ref for manual toggle tracking; removed `Clock` import and time estimate banner
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — removed `!isStreaming` guard on `BadgePopoverManager`; passes `isStreaming` prop through
+- `frontend/src/components/analysis/BadgePopover.tsx` — accepts `isStreaming` prop; snapshots bounding rect for streaming anchors; skips content-change auto-close during streaming

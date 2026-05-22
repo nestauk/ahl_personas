@@ -132,16 +132,15 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
         )}
         <div ref={bottomRef} />
       </div>
-      {!isStreaming && (
-        <BadgePopoverManager
-          containerRef={proseRef}
-          content={processed}
-          rawEvidence={rawEvidence}
-          sectionType={sectionType}
-          confirmedSubGroups={confirmedSubGroups}
-          onNavigateToSection={onNavigateToSection}
-        />
-      )}
+      <BadgePopoverManager
+        containerRef={proseRef}
+        content={processed}
+        rawEvidence={rawEvidence}
+        sectionType={sectionType}
+        confirmedSubGroups={confirmedSubGroups}
+        onNavigateToSection={onNavigateToSection}
+        isStreaming={isStreaming}
+      />
     </div>
   );
 });

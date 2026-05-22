@@ -214,7 +214,9 @@ export function ChatContainer() {
     });
 
     if (shouldActivateScan) {
-      setActiveSectionIfChanged("scan");
+      if (activeSectionRef.current === null) {
+        setActiveSectionIfChanged("scan");
+      }
       setStreamingSectionIfChanged("scan");
     }
   }, [setActiveSectionIfChanged, setStreamingSectionIfChanged]);
@@ -296,13 +298,7 @@ export function ChatContainer() {
 
         if (isSynthesisSection(sectionId)) {
           setStreamingSectionIfChanged(sectionId);
-          const current = activeSectionRef.current;
-          const lastStreamed = lastStreamedSectionRef.current;
-          if (
-            current === null ||
-            current === lastStreamed ||
-            (current && isSynthesisSection(current))
-          ) {
+          if (activeSectionRef.current === null) {
             setActiveSectionIfChanged(sectionId);
           }
         }
@@ -330,7 +326,9 @@ export function ChatContainer() {
               });
               return next;
             });
-            setActiveSectionIfChanged("scan");
+            if (activeSectionRef.current === null) {
+              setActiveSectionIfChanged("scan");
+            }
             setStreamingSectionIfChanged("scan");
           } else if (step === "synthesis") {
             setAnalysisSections((prev) => {
@@ -347,18 +345,14 @@ export function ChatContainer() {
               return next;
             });
             setStreamingSectionIfChanged("equity_assessment");
-            const current = activeSectionRef.current;
-            const lastStreamed = lastStreamedSectionRef.current;
-            if (current === null || current === lastStreamed) {
+            if (activeSectionRef.current === null) {
               setActiveSectionIfChanged("equity_assessment");
             }
           } else {
             const sectionId = `sg_${index ?? 0}`;
             setStreamingSectionIfChanged(sectionId);
             setActiveStepPhase(null);
-            const current = activeSectionRef.current;
-            const lastStreamed = lastStreamedSectionRef.current;
-            if (current === null || current === lastStreamed) {
+            if (activeSectionRef.current === null) {
               setActiveSectionIfChanged(sectionId);
             }
           }

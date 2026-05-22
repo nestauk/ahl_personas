@@ -449,6 +449,7 @@ export function BadgePopoverManager({
   sectionType = "subgroup",
   confirmedSubGroups,
   onNavigateToSection,
+  isStreaming = false,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   content: string;
@@ -456,11 +457,14 @@ export function BadgePopoverManager({
   sectionType?: "subgroup" | "synthesis";
   confirmedSubGroups?: SubGroup[];
   onNavigateToSection?: (sectionId: string) => void;
+  isStreaming?: boolean;
 }) {
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const openRef = useRef(false);
   const virtualAnchorRef = useRef(FALLBACK_ANCHOR);
   const prevContentRef = useRef(content);
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
 
   const handleBadgeClick = useCallback((e: MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -484,7 +488,16 @@ export function BadgePopoverManager({
         "",
       ) ??
       "";
-    virtualAnchorRef.current = badge;
+
+    if (isStreamingRef.current) {
+      const rect = badge.getBoundingClientRect();
+      virtualAnchorRef.current = {
+        getBoundingClientRect: () => rect,
+      };
+    } else {
+      virtualAnchorRef.current = badge;
+    }
+
     setPopover({ anchor: badge, detail, badgeType, sourceLabel });
     openRef.current = true;
   }, []);
@@ -501,6 +514,7 @@ export function BadgePopoverManager({
     if (prevContentRef.current === content) return;
     prevContentRef.current = content;
     if (!openRef.current) return;
+    if (isStreamingRef.current) return;
     setPopover(null);
     openRef.current = false;
     virtualAnchorRef.current = FALLBACK_ANCHOR;

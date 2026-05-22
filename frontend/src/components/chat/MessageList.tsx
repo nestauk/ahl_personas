@@ -23,8 +23,6 @@ export function MessageList({
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const userScrolledUp = useRef(false);
-  const prevMessageCount = useRef(messages.length);
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -33,26 +31,9 @@ export function MessageList({
   }, []);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const handleScroll = () => {
-      userScrolledUp.current = !isNearBottom();
-    };
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, [isNearBottom]);
-
-  useEffect(() => {
-    const newMessage = messages.length > prevMessageCount.current;
-    prevMessageCount.current = messages.length;
-
-    if (newMessage) {
-      userScrolledUp.current = false;
-    }
-
-    if (userScrolledUp.current) return;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!isNearBottom()) return;
+    bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messages, isNearBottom]);
 
   if (messages.length === 0) {
     return (

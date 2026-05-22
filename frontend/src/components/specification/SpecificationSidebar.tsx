@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
   FileText,
   HelpCircle,
   Play,
@@ -406,28 +405,34 @@ function SubGroupSection({
 function SearchList({
   searches,
   activeQuery = null,
+  isStepActive = false,
 }: {
   searches: EvidenceSearchRecord[];
   activeQuery?: string | null;
+  isStepActive?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasInFlight = Boolean(activeQuery);
-  const totalCount = searches.length + (hasInFlight ? 1 : 0);
+  const [expanded, setExpanded] = useState(isStepActive);
+  const userOverride = useRef<boolean | null>(null);
 
   useEffect(() => {
-    if (activeQuery) {
-      setExpanded(true);
-    } else {
-      setExpanded(false);
-    }
-  }, [activeQuery]);
+    userOverride.current = null;
+    setExpanded(isStepActive);
+  }, [isStepActive]);
+
+  const hasInFlight = Boolean(activeQuery);
+  const totalCount = searches.length + (hasInFlight ? 1 : 0);
 
   if (totalCount === 0) return null;
 
   return (
     <div className="mt-1">
       <button
-        onClick={() => setExpanded((prev) => !prev)}
+        onClick={() => {
+          setExpanded((prev) => {
+            userOverride.current = !prev;
+            return !prev;
+          });
+        }}
         className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
       >
         {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
@@ -610,6 +615,7 @@ export function SpecificationSidebar({
                           ? activeEvidenceSearch
                           : null
                       }
+                      isStepActive
                     />
                   );
                 }
@@ -618,7 +624,11 @@ export function SpecificationSidebar({
                   step.status === "complete" || step.status === "error" ? (
                     <>
                       {stepSearches.length > 0 && (
-                        <SearchList searches={stepSearches} activeQuery={null} />
+                        <SearchList
+                          searches={stepSearches}
+                          activeQuery={null}
+                          isStepActive={false}
+                        />
                       )}
                       {summary && step.status === "complete" && (
                         <p className="mt-1 text-[10px] leading-snug text-[var(--color-text-muted)]">
@@ -707,15 +717,6 @@ export function SpecificationSidebar({
                 </div>
               </div>
             </>
-          )}
-
-          {hasAnalysisStarted && !isComplete && !awaitingSynthesis && (
-            <div className="px-4 pb-3 pt-1">
-              <p className="text-[11px] text-[var(--color-text-muted)]">
-                <Clock size={10} className="mr-1 inline" />
-                Typically takes 1–2 minutes
-              </p>
-            </div>
           )}
 
           {isComplete && (

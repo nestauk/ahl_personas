@@ -16,7 +16,7 @@ export const COMPLETE_SUBGROUPS_REGEX =
   /\s*<proposed_sub_groups>[\s\S]*?<\/proposed_sub_groups>\s*/g;
 
 const STRUCTURED_OUTPUT_TAIL_REGEX =
-  /\n(?:#{2,3}\s*Part \d+\s*[—–-]\s*Structured output[^\n]*|#{2,3}\s*Structured output requirement)[\s\S]*$/i;
+  /\n#{2,3}\s*(?:Part\s+\d+\s*[—–:\-]\s*)?Structured\s+output\b[^\n]*[\s\S]*$/i;
 
 const PARTIAL_SECTION_MARKER_REGEX = /\s*<!--\s*SECTION:[\s\S]*$/;
 const PARTIAL_SUMMARY_CARD_REGEX = /\s*<summary_card[^>]*>[\s\S]*$/i;
