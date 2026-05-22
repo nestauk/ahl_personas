@@ -73,6 +73,38 @@ export interface SubgroupEvidenceEvent {
   searches: RawEvidenceSearch[];
 }
 
+export interface StepSummaryEvent {
+  type: "step_summary";
+  section_id: string;
+  summary: string;
+}
+
+export interface SummaryCard {
+  impact_direction?: string;
+  summary?: string;
+  key_findings?: string[];
+  evidence_confidence?: {
+    evidence_backed: number;
+    analogical: number;
+    reasoning: number;
+    gaps: number;
+  };
+  inequality_direction?: string;
+  gap_count?: number;
+  assumption_risks?: number;
+  equity_tensions?: number;
+  recommendation_count?: number;
+  high_count?: number;
+  moderate_count?: number;
+  low_count?: number;
+}
+
+export interface SummaryCardEvent {
+  type: "summary_card";
+  section_id: string;
+  card: SummaryCard;
+}
+
 // --- Analysis progress types ---
 
 export type AnalysisStepStatus = "pending" | "active" | "complete" | "error";
@@ -138,7 +170,9 @@ export type AnalysisDataEvent =
   | ProposedSubGroupsEvent
   | AnalysisContentEvent
   | AnalysisCheckpointEvent
-  | SubgroupEvidenceEvent;
+  | SubgroupEvidenceEvent
+  | StepSummaryEvent
+  | SummaryCardEvent;
 
 // --- Taxonomy labels (for sidebar pill display) ---
 

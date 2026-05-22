@@ -5,6 +5,12 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import {
+  normalizeMarkdownBlockBreaks,
+  stripArtifactTailBlocks,
+} from "@/lib/analysis-sections";
+import type { SummaryCard } from "@/lib/types";
+import { ArtifactSummaryCard } from "./ArtifactSummaryCard";
+import {
   renderGroundingBadges,
   stripIncompleteStructuredBlocks,
   stripProposedSubGroupsContent,
@@ -19,6 +25,8 @@ const NEAR_BOTTOM_THRESHOLD = 120;
 interface AnalysisSectionPanelProps {
   content: string;
   isStreaming: boolean;
+  sectionId?: string;
+  summaryCard?: SummaryCard | null;
   rawEvidence?: RawEvidenceSearch[];
   sectionType?: "subgroup" | "synthesis";
   confirmedSubGroups?: SubGroup[];
@@ -28,6 +36,8 @@ interface AnalysisSectionPanelProps {
 export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   content,
   isStreaming,
+  sectionId,
+  summaryCard,
   rawEvidence,
   sectionType = "subgroup",
   confirmedSubGroups,
@@ -80,7 +90,9 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   }, [isStreaming]);
 
   const processed = useMemo(() => {
-    let stripped = stripProposedSubGroupsContent(content);
+    let stripped = stripArtifactTailBlocks(
+      stripProposedSubGroupsContent(content),
+    );
     if (isStreaming) {
       stripped = stripIncompleteStructuredBlocks(stripped);
       const trailingMatch = stripped.match(TRAILING_PARTIAL_TAG_REGEX);
@@ -89,17 +101,24 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
         if (
           "<proposed_sub_groups>".startsWith(fragment) ||
           "<policy_spec>".startsWith(fragment) ||
-          "<badge_detail>".startsWith(fragment)
+          "<badge_detail>".startsWith(fragment) ||
+          "<step_summary>".startsWith(fragment) ||
+          "<summary_card".startsWith(fragment)
         ) {
           stripped = stripped.slice(0, trailingMatch.index);
         }
       }
     }
-    return renderGroundingBadges(stripped.trimEnd());
+    stripped = normalizeMarkdownBlockBreaks(stripped.trimEnd());
+    const withBadges = renderGroundingBadges(stripped);
+    return normalizeMarkdownBlockBreaks(withBadges);
   }, [content, isStreaming]);
 
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+      {summaryCard && sectionId && (
+        <ArtifactSummaryCard card={summaryCard} sectionId={sectionId} />
+      )}
       <div ref={proseRef} className="prose mx-auto max-w-3xl">
         <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
           {processed}

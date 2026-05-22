@@ -19,6 +19,7 @@ const STRUCTURED_OUTPUT_TAIL_REGEX =
   /\n(?:#{2,3}\s*Part \d+\s*[—–-]\s*Structured output[^\n]*|#{2,3}\s*Structured output requirement)[\s\S]*$/i;
 
 const PARTIAL_SECTION_MARKER_REGEX = /\s*<!--\s*SECTION:[\s\S]*$/;
+const PARTIAL_SUMMARY_CARD_REGEX = /\s*<summary_card[^>]*>[\s\S]*$/i;
 
 function escapeAttr(s: string): string {
   return s
@@ -67,6 +68,24 @@ export function stripIncompleteStructuredBlocks(content: string): string {
     const lastClose = stripped.lastIndexOf("</badge_detail>");
     if (lastClose < lastOpen) {
       stripped = stripped.slice(0, lastOpen);
+    }
+  }
+
+  const summaryOpen = stripped.lastIndexOf("<step_summary>");
+  if (summaryOpen !== -1) {
+    const summaryClose = stripped.lastIndexOf("</step_summary>");
+    if (summaryClose < summaryOpen) {
+      stripped = stripped.slice(0, summaryOpen);
+    }
+  }
+
+  stripped = stripped.replace(PARTIAL_SUMMARY_CARD_REGEX, "");
+
+  const cardOpen = stripped.search(/<summary_card\b/i);
+  if (cardOpen !== -1) {
+    const cardClose = stripped.lastIndexOf("</summary_card>");
+    if (cardClose < cardOpen) {
+      stripped = stripped.slice(0, cardOpen);
     }
   }
 

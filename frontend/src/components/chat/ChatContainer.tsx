@@ -14,7 +14,9 @@ import {
   debouncedSave,
   fixInterruptedAnalysis,
   hydrateAnalysisSections,
+  hydrateStepSummaries,
   hydrateSubgroupEvidence,
+  hydrateSummaryCards,
   loadSession,
 } from "@/lib/session-cache";
 import {
@@ -29,12 +31,16 @@ import {
   type RawEvidenceSearch,
   type SpecMetadata,
   type SubGroup,
+  type SummaryCard,
 } from "@/lib/types";
 import {
   SYNTHESIS_SECTION_IDS,
   SYNTHESIS_SECTION_LABELS,
+  buildSgLabels,
   deriveSynthesisSubstepStatus,
   isSynthesisSection,
+  stripArtifactTailBlocks,
+  type ActiveStepPhase,
 } from "@/lib/analysis-sections";
 
 function parseSpecFromData(
@@ -116,6 +122,19 @@ export function ChatContainer() {
       ? hydrateSubgroupEvidence(initialCache.cached.subgroupEvidence)
       : new Map(),
   );
+  const [stepSummaries, setStepSummaries] = useState<Map<string, string>>(() =>
+    initialCache?.cached.stepSummaries
+      ? hydrateStepSummaries(initialCache.cached.stepSummaries)
+      : new Map(),
+  );
+  const [summaryCards, setSummaryCards] = useState<Map<string, SummaryCard>>(
+    () =>
+      initialCache?.cached.summaryCards
+        ? hydrateSummaryCards(initialCache.cached.summaryCards)
+        : new Map(),
+  );
+  const [activeStepPhase, setActiveStepPhase] =
+    useState<ActiveStepPhase>(null);
 
   const specMetaRef = useRef(specMeta);
   specMetaRef.current = specMeta;
@@ -271,6 +290,10 @@ export function ChatContainer() {
         const pending = pendingDeltasRef.current;
         pending.set(sectionId, (pending.get(sectionId) ?? "") + delta);
 
+        if (sectionId.startsWith("sg_")) {
+          setActiveStepPhase("writing");
+        }
+
         if (isSynthesisSection(sectionId)) {
           setStreamingSectionIfChanged(sectionId);
           const current = activeSectionRef.current;
@@ -332,6 +355,7 @@ export function ChatContainer() {
           } else {
             const sectionId = `sg_${index ?? 0}`;
             setStreamingSectionIfChanged(sectionId);
+            setActiveStepPhase(null);
             const current = activeSectionRef.current;
             const lastStreamed = lastStreamedSectionRef.current;
             if (current === null || current === lastStreamed) {
@@ -345,6 +369,9 @@ export function ChatContainer() {
           lastStreamedSectionRef.current = streamingSectionRef.current;
           setStreamingSectionIfChanged(null);
           setActiveEvidenceSearch(null);
+          if (step === "subgroup") {
+            setActiveStepPhase(null);
+          }
         }
 
         setAnalysisProgress((prev) => {
@@ -386,6 +413,7 @@ export function ChatContainer() {
       if (eventType === "evidence_search") {
         const query = item.query as string;
         setActiveEvidenceSearch((prev) => (prev === query ? prev : query));
+        setActiveStepPhase("searching");
       }
 
       if (eventType === "evidence_search_complete") {
@@ -417,6 +445,45 @@ export function ChatContainer() {
         setSubgroupEvidence((prev) => {
           const next = new Map(prev);
           next.set(sectionId, searches);
+          return next;
+        });
+      }
+
+      if (eventType === "step_summary") {
+        const sectionId = item.section_id as string;
+        const summary = item.summary as string;
+        setStepSummaries((prev) => {
+          const next = new Map(prev);
+          next.set(sectionId, summary);
+          return next;
+        });
+        setAnalysisSections((prev) => {
+          const existing = prev.get(sectionId);
+          if (!existing) return prev;
+          const cleaned = stripArtifactTailBlocks(existing.content);
+          if (cleaned === existing.content) return prev;
+          const next = new Map(prev);
+          next.set(sectionId, { ...existing, content: cleaned });
+          return next;
+        });
+      }
+
+      if (eventType === "summary_card") {
+        const sectionId = item.section_id as string;
+        const card = item.card as SummaryCard;
+        if (!card) return;
+        setSummaryCards((prev) => {
+          const next = new Map(prev);
+          next.set(sectionId, card);
+          return next;
+        });
+        setAnalysisSections((prev) => {
+          const existing = prev.get(sectionId);
+          if (!existing) return prev;
+          const cleaned = stripArtifactTailBlocks(existing.content);
+          if (cleaned === existing.content) return prev;
+          const next = new Map(prev);
+          next.set(sectionId, { ...existing, content: cleaned });
           return next;
         });
       }
@@ -489,6 +556,8 @@ export function ChatContainer() {
       analysisSections,
       activeSection,
       subgroupEvidence,
+      stepSummaries,
+      summaryCards,
     });
   }, [
     stage,
@@ -500,6 +569,8 @@ export function ChatContainer() {
     analysisSections,
     activeSection,
     subgroupEvidence,
+    stepSummaries,
+    summaryCards,
   ]);
 
   const handleNewSession = useCallback(() => {
@@ -518,6 +589,9 @@ export function ChatContainer() {
     setActiveSectionIfChanged(null);
     setStreamingSectionIfChanged(null);
     setSubgroupEvidence(new Map());
+    setStepSummaries(new Map());
+    setSummaryCards(new Map());
+    setActiveStepPhase(null);
     lastProcessedDataIdx.current = -1;
     checkpointReachedRef.current = false;
     pendingDeltasRef.current.clear();
@@ -593,6 +667,7 @@ export function ChatContainer() {
     });
     setActiveSectionIfChanged(null);
     setStreamingSectionIfChanged(null);
+    setActiveStepPhase(null);
 
     append({
       role: "user",
@@ -613,6 +688,11 @@ export function ChatContainer() {
         analysisSections,
       ),
     [analysisProgress, streamingSection, analysisSections],
+  );
+
+  const sgLabels = useMemo(
+    () => buildSgLabels(confirmedSubGroups?.length ?? 0),
+    [confirmedSubGroups],
   );
 
   const awaitingSynthesis = useMemo(() => {
@@ -636,7 +716,10 @@ export function ChatContainer() {
     const texts: { name: string; text: string }[] = [];
     sections.forEach((section) => {
       if (section.id.startsWith("sg_")) {
-        texts.push({ name: section.name, text: section.content });
+        texts.push({
+          name: section.name,
+          text: stripArtifactTailBlocks(section.content),
+        });
       }
     });
     if (texts.length === 0) return;
@@ -734,6 +817,10 @@ export function ChatContainer() {
           activeEvidenceSearch={activeEvidenceSearch}
           onSelectSection={handleSelectSection}
           synthesisSubsteps={synthesisSubsteps}
+          activeStepPhase={activeStepPhase}
+          stepSummaries={stepSummaries}
+          sgLabels={sgLabels}
+          streamingSection={streamingSection}
         />
 
         {/* Chat (centre, always present) */}
@@ -762,6 +849,7 @@ export function ChatContainer() {
             className={`flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-border)] ${artifactsWidth}`}
           >
             <AnalysisView
+              summaryCards={summaryCards}
               policySummary={policySummary}
               policyName={specMeta.spec.policy_name}
               sections={analysisSections}

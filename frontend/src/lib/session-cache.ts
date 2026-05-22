@@ -7,10 +7,11 @@ import type {
   RawEvidenceSearch,
   SpecMetadata,
   SubGroup,
+  SummaryCard,
 } from "./types";
 
 const STORAGE_KEY = "ahl-session";
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 6;
 
 export interface CachedSession {
   version: number;
@@ -23,11 +24,15 @@ export interface CachedSession {
   analysisSections: [string, AnalysisSection][];
   activeSection: string | null;
   subgroupEvidence: [string, RawEvidenceSearch[]][];
+  stepSummaries: [string, string][];
+  summaryCards: [string, SummaryCard][];
 }
 
-export function saveSession(state: Omit<CachedSession, "version" | "analysisSections" | "subgroupEvidence"> & {
+export function saveSession(state: Omit<CachedSession, "version" | "analysisSections" | "subgroupEvidence" | "stepSummaries" | "summaryCards"> & {
   analysisSections: Map<string, AnalysisSection>;
   subgroupEvidence: Map<string, RawEvidenceSearch[]>;
+  stepSummaries: Map<string, string>;
+  summaryCards: Map<string, SummaryCard>;
 }): void {
   try {
     const serialisable: CachedSession = {
@@ -35,6 +40,8 @@ export function saveSession(state: Omit<CachedSession, "version" | "analysisSect
       version: CACHE_VERSION,
       analysisSections: Array.from(state.analysisSections.entries()),
       subgroupEvidence: Array.from(state.subgroupEvidence.entries()),
+      stepSummaries: Array.from(state.stepSummaries.entries()),
+      summaryCards: Array.from(state.summaryCards.entries()),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(serialisable));
   } catch {
@@ -129,10 +136,24 @@ export function clearSession(): void {
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+export function hydrateStepSummaries(
+  entries: [string, string][] | undefined,
+): Map<string, string> {
+  return entries ? new Map(entries) : new Map();
+}
+
+export function hydrateSummaryCards(
+  entries: [string, SummaryCard][] | undefined,
+): Map<string, SummaryCard> {
+  return entries ? new Map(entries) : new Map();
+}
+
 export function debouncedSave(
-  state: Omit<CachedSession, "version" | "analysisSections" | "subgroupEvidence"> & {
+  state: Omit<CachedSession, "version" | "analysisSections" | "subgroupEvidence" | "stepSummaries" | "summaryCards"> & {
     analysisSections: Map<string, AnalysisSection>;
     subgroupEvidence: Map<string, RawEvidenceSearch[]>;
+    stepSummaries: Map<string, string>;
+    summaryCards: Map<string, SummaryCard>;
   },
   delayMs = 500,
 ): void {

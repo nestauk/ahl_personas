@@ -114,6 +114,27 @@ Group under thematic `###` headings. Each recommendation:
 
 ---
 
+## Summary cards (required)
+
+At the end of **each** of the three sections — after that section's content and **before** the next `<!-- SECTION: ... -->` marker — append a `<summary_card>` JSON block appropriate to that section:
+
+**Equity assessment** (`equity_assessment`):
+- `summary`: 2–3 sentences on who benefits most/least and overall distributional picture
+- `key_findings`: array of at least 3 strings (single-sentence, scannable implications)
+- `inequality_direction`: one sentence on whether inequalities likely increase, decrease, or are mixed
+
+**Risks & provocations** (`risks_provocations`):
+- `summary`: 2–3 sentences on the most critical gaps and tensions
+- `key_findings`: array of at least 3 strings
+- `gap_count`, `assumption_risks`, `equity_tensions`: integer counts of items you identified in that section
+
+**Design improvements** (`design_improvements`):
+- `summary`: 2–3 sentences on the recommendation themes and priorities
+- `key_findings`: array of at least 3 priority actions (single-sentence each)
+- `recommendation_count`: integer total recommendations in that section
+
+These cards appear at the top of each synthesis artifact — make them punchy and scannable.
+
 ## What you must NOT do
 
 - Do not simply summarise each sub-group analysis — synthesise across them
@@ -121,6 +142,7 @@ Group under thematic `###` headings. Each recommendation:
 - Do not present the analysis as definitive — it is a pre-consultation analytical aid
 - Do not ignore the evidence grounding tags from the sub-group analyses — your synthesis should reflect where claims are well-grounded and where they rest on reasoning or gaps
 - Do not use full sub-group names in inline badges — use SG labels only
+- Do not place `<summary_card>` blocks in the wrong section — each card belongs at the end of its section only
 
 ## Formatting requirements
 

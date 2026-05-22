@@ -1,4 +1,9 @@
-import type { AnalysisSection, AnalysisStepStatus, SubGroup } from "@/lib/types";
+import type {
+  AnalysisSection,
+  AnalysisStepStatus,
+  EvidenceSearchRecord,
+  SubGroup,
+} from "@/lib/types";
 
 export const SYNTHESIS_SECTION_IDS = [
   "equity_assessment",
@@ -388,3 +393,74 @@ export function deriveSynthesisSubstepStatus(
 
 export const EMPTY_SYNTHESIS_SECTION_NOTE =
   "This section was not generated separately — see Equity Assessment.";
+
+export type ActiveStepPhase = "searching" | "writing" | null;
+
+export const SYNTHESIS_ACTIVE_STATUS: Record<SynthesisSectionId, string> = {
+  equity_assessment: "Writing equity assessment...",
+  risks_provocations: "Identifying risks and provocations...",
+  design_improvements: "Generating design improvements...",
+};
+
+const STEP_SUMMARY_REGEX = /<step_summary>[\s\S]*?<\/step_summary>/gi;
+const SUMMARY_CARD_REGEX = /<summary_card[^>]*>[\s\S]*?<\/summary_card>/gi;
+const SECTION_MARKER_REGEX = /<!--\s*SECTION:\s*[^>]+-->\s*/gi;
+
+/** Ensure markdown headings start on their own block (e.g. after inline badge spans). */
+export function normalizeMarkdownBlockBreaks(content: string): string {
+  return content
+    .replace(/(<\/span>)(\s*)(#{1,6}\s)/g, "$1\n\n$3")
+    .replace(/([^\n#])(#{1,6}\s)/g, "$1\n\n$2");
+}
+
+/** Remove sidebar-only and summary-card blocks from analysis panel content. */
+export function stripArtifactTailBlocks(text: string): string {
+  return text
+    .replace(SECTION_MARKER_REGEX, "")
+    .replace(STEP_SUMMARY_REGEX, "")
+    .replace(SUMMARY_CARD_REGEX, "")
+    .trimEnd();
+}
+
+/** @deprecated Use stripArtifactTailBlocks */
+export function stripStepSummaryFromContent(text: string): string {
+  return stripArtifactTailBlocks(text);
+}
+
+/** Build section-id → SG label map (e.g. sg_0 → SG1). */
+export function buildSgLabels(subgroupCount: number): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (let i = 0; i < subgroupCount; i++) {
+    labels.set(`sg_${i}`, `SG${i + 1}`);
+  }
+  return labels;
+}
+
+/** Count distinct evidence sources across completed searches for a step. */
+export function countUniqueEvidenceSources(
+  searches: EvidenceSearchRecord[] | undefined,
+): number {
+  const names = new Set<string>();
+  for (const search of searches ?? []) {
+    for (const name of search.sourceNames ?? []) {
+      if (name.trim()) names.add(name);
+    }
+  }
+  return names.size;
+}
+
+/** Status line while the active sub-group step is searching the evidence base. */
+export function formatSubgroupSearchingStatus(
+  completedSearches: number,
+  inFlight: boolean,
+): string {
+  const count = completedSearches + (inFlight ? 1 : 0);
+  if (count === 0) return "Searching evidence base...";
+  return `Searching evidence base... (${count})`;
+}
+
+/** Status line while the active sub-group step is writing analysis text. */
+export function formatSubgroupWritingStatus(sourceCount: number): string {
+  const label = sourceCount === 1 ? "source" : "sources";
+  return `Generating analysis from ${sourceCount} ${label}...`;
+}

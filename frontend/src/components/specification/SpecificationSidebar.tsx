@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -28,6 +28,11 @@ import { TAXONOMY_LABELS } from "@/lib/types";
 import {
   SYNTHESIS_SECTION_IDS,
   SYNTHESIS_SECTION_LABELS,
+  SYNTHESIS_ACTIVE_STATUS,
+  countUniqueEvidenceSources,
+  formatSubgroupSearchingStatus,
+  formatSubgroupWritingStatus,
+  type ActiveStepPhase,
   type SynthesisSectionId,
 } from "@/lib/analysis-sections";
 
@@ -48,6 +53,10 @@ interface SpecificationSidebarProps {
   activeEvidenceSearch?: string | null;
   onSelectSection?: (sectionId: string) => void;
   synthesisSubsteps?: Record<SynthesisSectionId, AnalysisStep["status"]>;
+  activeStepPhase?: ActiveStepPhase;
+  stepSummaries?: Map<string, string>;
+  sgLabels?: Map<string, string>;
+  streamingSection?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +351,10 @@ function SubGroupSection({
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
+  useEffect(() => {
+    setCollapsed(defaultCollapsed);
+  }, [defaultCollapsed]);
+
   const showCards = editable || !collapsed;
 
   return (
@@ -390,10 +403,26 @@ function SubGroupSection({
 // SearchList — expandable list of completed evidence searches for a step
 // ---------------------------------------------------------------------------
 
-function SearchList({ searches }: { searches: EvidenceSearchRecord[] }) {
+function SearchList({
+  searches,
+  activeQuery = null,
+}: {
+  searches: EvidenceSearchRecord[];
+  activeQuery?: string | null;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const hasInFlight = Boolean(activeQuery);
+  const totalCount = searches.length + (hasInFlight ? 1 : 0);
 
-  if (searches.length === 0) return null;
+  useEffect(() => {
+    if (activeQuery) {
+      setExpanded(true);
+    } else {
+      setExpanded(false);
+    }
+  }, [activeQuery]);
+
+  if (totalCount === 0) return null;
 
   return (
     <div className="mt-1">
@@ -403,11 +432,21 @@ function SearchList({ searches }: { searches: EvidenceSearchRecord[] }) {
       >
         {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
         <span>
-          {searches.length} evidence search{searches.length !== 1 ? "es" : ""}
+          {totalCount} evidence search{totalCount !== 1 ? "es" : ""}
         </span>
       </button>
       {expanded && (
         <div className="mt-1 space-y-1.5 pl-3.5">
+          {hasInFlight && activeQuery && (
+            <div className="rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-light)]/50 px-2 py-1">
+              <div className="flex items-start gap-1">
+                <Search size={9} className="mt-[3px] shrink-0 text-[var(--color-accent)]" />
+                <span className="text-[10px] leading-snug text-[var(--color-text)]">
+                  {activeQuery}
+                </span>
+              </div>
+            </div>
+          )}
           {searches.map((s, i) => (
             <div
               key={i}
@@ -452,6 +491,10 @@ export function SpecificationSidebar({
   activeEvidenceSearch,
   onSelectSection,
   synthesisSubsteps,
+  activeStepPhase = null,
+  stepSummaries,
+  sgLabels,
+  streamingSection = null,
 }: SpecificationSidebarProps) {
   const isSpecifying = stage === "specifying";
   const isAnalysing = stage === "analysing";
@@ -528,48 +571,69 @@ export function SpecificationSidebar({
             <div className="p-4">
               {subgroupAnalysisSteps.map((step, i) => {
                 const isLast = i === subgroupAnalysisSteps.length - 1;
-                const label =
+                const baseName =
                   step.name || `Sub-group ${(step.index ?? 0) + 1}`;
                 const sectionId = `sg_${step.index ?? 0}`;
+                const sgPrefix = sgLabels?.get(sectionId);
+                const label = sgPrefix ? `${sgPrefix}: ${baseName}` : baseName;
                 const isActive = step.status === "active";
                 const stepSearches = step.searches ?? [];
+                const summary = stepSummaries?.get(sectionId);
+
+                let phaseSubtitle: string | null = null;
+                if (isActive) {
+                  if (activeStepPhase === "writing") {
+                    const sourceCount = countUniqueEvidenceSources(stepSearches);
+                    phaseSubtitle = formatSubgroupWritingStatus(
+                      Math.max(sourceCount, 1),
+                    );
+                  } else {
+                    phaseSubtitle = formatSubgroupSearchingStatus(
+                      stepSearches.length,
+                      Boolean(activeEvidenceSearch),
+                    );
+                  }
+                } else if (step.status === "error") {
+                  phaseSubtitle = "Analysis failed — skipped";
+                }
 
                 let activeContent: React.ReactNode = null;
-                if (isActive && activeEvidenceSearch) {
+                if (
+                  isActive &&
+                  (activeEvidenceSearch || stepSearches.length > 0)
+                ) {
                   activeContent = (
-                    <>
-                      <div className="evidence-search-indicator mt-1 flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
-                        <Search size={10} className="shrink-0 text-[var(--color-text-muted)]" />
-                        <span className="truncate text-[10px] text-[var(--color-text-muted)]">
-                          {activeEvidenceSearch}
-                        </span>
-                      </div>
-                      {stepSearches.length > 0 && <SearchList searches={stepSearches} />}
-                    </>
-                  );
-                } else if (isActive) {
-                  activeContent = (
-                    <>
-                      <span className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                        {stepSearches.length > 0
-                          ? "Generating analysis…"
-                          : "Searching evidence base…"}
-                      </span>
-                      {stepSearches.length > 0 && <SearchList searches={stepSearches} />}
-                    </>
+                    <SearchList
+                      searches={stepSearches}
+                      activeQuery={
+                        activeStepPhase === "searching"
+                          ? activeEvidenceSearch
+                          : null
+                      }
+                    />
                   );
                 }
 
                 const completedContent =
-                  (step.status === "complete" || step.status === "error") && stepSearches.length > 0
-                    ? <SearchList searches={stepSearches} />
-                    : null;
+                  step.status === "complete" || step.status === "error" ? (
+                    <>
+                      {stepSearches.length > 0 && (
+                        <SearchList searches={stepSearches} activeQuery={null} />
+                      )}
+                      {summary && step.status === "complete" && (
+                        <p className="mt-1 text-[10px] leading-snug text-[var(--color-text-muted)]">
+                          {summary}
+                        </p>
+                      )}
+                    </>
+                  ) : null;
 
                 return (
                   <StepEntry
                     key={`${step.step}-${step.index ?? "s"}`}
                     status={step.status}
                     label={label}
+                    subtitle={phaseSubtitle}
                     isLast={isLast && !synthesisStep}
                     onClick={() => onSelectSection?.(sectionId)}
                     activeContent={
@@ -609,11 +673,23 @@ export function SpecificationSidebar({
                       (synthesisStep.status === "pending"
                         ? "pending"
                         : synthesisStep.status);
+                    const isSubActive = subStatus === "active";
+                    const synthesisSubtitle = isSubActive
+                      ? SYNTHESIS_ACTIVE_STATUS[
+                          (streamingSection &&
+                          SYNTHESIS_SECTION_IDS.includes(
+                            streamingSection as SynthesisSectionId,
+                          )
+                            ? streamingSection
+                            : sectionId) as SynthesisSectionId
+                        ]
+                      : null;
                     return (
                       <StepEntry
                         key={sectionId}
                         status={subStatus}
                         label={SYNTHESIS_SECTION_LABELS[sectionId]}
+                        subtitle={synthesisSubtitle}
                         isLast={i === SYNTHESIS_SECTION_IDS.length - 1}
                         onClick={() => onSelectSection?.(sectionId)}
                         completedVariant="synthesis"

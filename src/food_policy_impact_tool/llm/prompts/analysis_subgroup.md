@@ -118,6 +118,39 @@ Formatting should make your analysis more scannable — not shorter. Prioritise 
 - Use bullet points where they aid readability, particularly for listing distinct impacts or risks. Don't force everything into bullets — extended analytical reasoning is better as prose.
 - Use **horizontal rules** (`---`) between major sections when a heading alone isn't enough visual break.
 
+## Sidebar summary (required)
+
+At the very end of your analysis, after all sections above, output a `<step_summary>` tag containing a single sentence (maximum 20 words) summarising the key finding for this sub-group. This is used for the progress sidebar, not the full analysis.
+
+Example: `<step_summary>Price caps deliver outsized savings but convenience store de-stocking risks uneven access.</step_summary>`
+
+After the `<step_summary>`, append a `<summary_card>` JSON block containing:
+- `impact_direction`: one sentence describing the overall impact (positive/negative/mixed and on what dimensions)
+- `key_findings`: array of at least 3 strings, each a single-sentence key finding from your analysis. Frame these as implications — punchy and scannable, not academic observations
+- `evidence_confidence`: object with integer counts of `evidence_backed`, `analogical`, `reasoning`, and `gaps` claims in your analysis (count each grounding badge type you used)
+
+Example:
+```json
+<summary_card>
+{
+  "impact_direction": "Mixed — positive on affordability, negative on access",
+  "key_findings": [
+    "Outsized savings on high-frequency staples due to high convenience store reliance",
+    "De-stocking risk in convenience stores undermines access — thin margins make range reduction likely",
+    "Small pack size exclusion limits realised savings for this household type"
+  ],
+  "evidence_confidence": {
+    "evidence_backed": 5,
+    "analogical": 2,
+    "reasoning": 4,
+    "gaps": 2
+  }
+}
+</summary_card>
+```
+
+This summary card appears at the top of the artifact in the reading panel — make it scannable.
+
 ## What you must NOT do
 
 - Do not frame your analysis as representing the views of any community or group
@@ -125,6 +158,7 @@ Formatting should make your analysis more scannable — not shorter. Prioritise 
 - Do not treat this analysis as definitive — it is a first-pass analytical aid
 - Do not reason from stereotypes — reason from the material constraints described in the modifier features
 - Do not include the full analysis of other sub-groups — focus solely on this one
+- Do not place the `<step_summary>` or `<summary_card>` anywhere except at the very end of your response
 
 ## Tone
 

@@ -1,7 +1,12 @@
 "use client";
 
 import { FileText, Loader2 } from "lucide-react";
-import type { AnalysisSection, RawEvidenceSearch, SubGroup } from "@/lib/types";
+import type {
+  AnalysisSection,
+  RawEvidenceSearch,
+  SubGroup,
+  SummaryCard,
+} from "@/lib/types";
 import { TAXONOMY_LABELS } from "@/lib/types";
 import {
   EMPTY_SYNTHESIS_SECTION_NOTE,
@@ -25,6 +30,7 @@ interface AnalysisViewProps {
   activeSection: string | null;
   streamingSection: string | null;
   subgroupEvidence: Map<string, RawEvidenceSearch[]>;
+  summaryCards?: Map<string, SummaryCard>;
   confirmedSubGroups?: SubGroup[] | null;
   synthesisComplete?: boolean;
   onNavigateToSection?: (sectionId: string) => void;
@@ -58,6 +64,7 @@ export function AnalysisView({
   activeSection,
   streamingSection,
   subgroupEvidence,
+  summaryCards,
   confirmedSubGroups,
   synthesisComplete = false,
   onNavigateToSection,
@@ -177,6 +184,10 @@ export function AnalysisView({
           key={effectiveSection}
           content={section.content}
           isStreaming={isStreaming}
+          sectionId={effectiveSection ?? undefined}
+          summaryCard={
+            effectiveSection ? summaryCards?.get(effectiveSection) : undefined
+          }
           rawEvidence={
             effectiveSection && !isSynthesis
               ? subgroupEvidence.get(effectiveSection)

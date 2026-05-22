@@ -1147,3 +1147,101 @@ Full sub-group names in synthesis inline badges and popovers produced repetitive
 ### Fix: synthesis section split when HTML markers omitted (2026-05-22)
 
 The model often outputs plain `Risks & Provocations` / `Design Improvements` lines (no `<!-- SECTION: -->`), so all content stayed in `equity_assessment`. `_SynthesisSectionParser` now splits on line boundaries using HTML markers **or** recognised section headings (with or without `##`). Logs a warning if fewer than three sections were seen. Prompt updated to require `##` headings when markers are omitted.
+
+---
+
+## 2026-05-22 — Chat progress narration, sidebar improvements, and summary cards
+
+### What was done
+
+Three layers of progressive detail disclosure added to the analysis workflow, plus sidebar UX improvements and bug fixes.
+
+### 1. Detailed chat progress narration
+
+**Per sub-group (4 messages each):**
+- Start: "Analysing impacts for **[name]**..."
+- Evidence gathered: "Found relevant evidence across N sources." (on first analysis token after tool calls)
+- Writing: "Writing detailed impact analysis for this sub-group..."
+- Complete: "✓ Completed analysis for **[name]**. Moving to **[next]**..." (or "All sub-group analyses complete." for the last)
+
+**Synthesis (5 messages):**
+- "Beginning equity synthesis across N sub-group analyses..."
+- Section transitions: "Synthesising equity assessment...", "Identifying evidence gaps...", "Generating design improvement recommendations..."
+- "✓ Synthesis complete. Three artifacts generated: Equity Assessment, Risks & Provocations, and Design Improvements."
+
+**Implementation:** `_stream_subgroup_with_tools()` yields `("progress", ...)` tuples for evidence-gathered and writing-started phases; `stream_analysis_chain()` forwards these as `("text", ...)` while routing LLM tokens to the reading panel only. `_SynthesisSectionParser` tracks section transitions via `drain_section_transitions()` and `_SYNTHESIS_SECTION_PROGRESS` messages are yielded at each transition.
+
+### 2. Sidebar progress improvements
+
+**Active sub-group phase tracking:**
+- `activeStepPhase` state (`"searching" | "writing" | null`) set by `evidence_search` and `analysis_content` events
+- Subtitle shows "Searching evidence base... (N)" during searches, "Generating analysis from N sources..." during writing
+
+**SG labels:** Each step prefixed with `SG1:`, `SG2:`, etc. via `buildSgLabels()` — consistent with synthesis badge labels.
+
+**Step summaries:** Prompt instructs `<step_summary>` (≤20 words) at end of each sub-group analysis. Orchestrator extracts and emits `step_summary` data event. Displayed below evidence search count in the sidebar (full text, no truncation).
+
+**Evidence search list auto-expand/collapse:** `SearchList` component accepts `activeQuery` prop. Expands when a search starts (shows in-flight query highlighted at top), collapses when search completes. Active query shown with accent-coloured border.
+
+**Sub-group section auto-collapse:** `SubGroupSection` syncs with `defaultCollapsed` via `useEffect`, so confirmed sub-groups collapse when analysis begins.
+
+**Active synthesis substeps:** Status lines on active synthesis steps ("Writing equity assessment...", etc.) driven by `streamingSection` state.
+
+### 3. Summary cards (progressive detail disclosure layer 2)
+
+Zero extra LLM calls — `<summary_card>` JSON block appended at end of each artifact's generation.
+
+**Per sub-group:** `impact_direction`, `key_findings` (3+), `evidence_confidence` counts (evidence_backed, analogical, reasoning, gaps).
+**Scan:** `summary`, `key_findings`, `high_count`/`moderate_count`/`low_count`.
+**Equity assessment:** `summary`, `key_findings`, `inequality_direction`.
+**Risks & provocations:** `summary`, `key_findings`, `gap_count`, `assumption_risks`, `equity_tensions`.
+**Design improvements:** `summary`, `key_findings`, `recommendation_count`.
+
+**Backend:** `_extract_summary_card()` / `_strip_summary_card()` with regex `<summary_card[^>]*>…</summary_card>` (handles model adding type attributes). Emitted as `summary_card` data event per artifact. Synthesis cards extracted via `_SynthesisSectionParser.finalize_section_card()` on section transitions and flush.
+
+**Frontend:** `ArtifactSummaryCard.tsx` renders at top of each artifact — compact card with bold headline, key findings list, context-specific metadata (evidence confidence for sub-groups, modifier counts for scan, etc.). `summaryCards` Map persisted in session cache (v6).
+
+### 4. Bug fixes
+
+**Synthesis formatting broken:** `_strip_summary_card()` called per-line in `_SynthesisSectionParser._emit_line()` was stripping trailing `\n` via `.rstrip()`, causing all synthesis content to concatenate into one unformatted block. Fixed by removing per-line summary card stripping — extraction correctly handled by `finalize_section_card()` on accumulated section content.
+
+**`###` sub-headings held by partial heading detector:** `_line_might_be_partial_heading()` treated any line starting with `##` as a potential section title, including `###` sub-headings. Fixed to only match H2-level fragments and specific section title prefixes.
+
+**`<summary_card type="...">` not stripped:** Model emits `<summary_card type="equity_assessment">` but regex only matched plain `<summary_card>`. Updated to `<summary_card[^>]*>` on both backend and frontend.
+
+**Section markers leaking to reading panel:** `<!-- SECTION: ... -->` comments sometimes appeared in rendered content. `stripArtifactTailBlocks()` now also removes section markers.
+
+**Markdown headings after inline badges:** `### heading` following a `</span>` on the same line wasn't recognised by markdown. Added `normalizeMarkdownBlockBreaks()` to ensure headings get block-level line breaks.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Chat progress via `("progress", ...)` tuple | Separate yield type in `_stream_subgroup_with_tools()`, forwarded as `("text", ...)` by caller | Keeps LLM analysis tokens (`("text", ...)`) routed to reading panel only; progress messages flow to chat. |
+| Step summaries via prompt (Option A) | `<step_summary>` tag in `analysis_subgroup.md` | More reliable than frontend text extraction; summary can be tailored for sidebar context. |
+| Summary card extraction location | Per-artifact on completion (sub-groups, scan); per-section via `finalize_section_card()` (synthesis) | Multi-line JSON blocks can't be matched per-streaming-delta; must operate on accumulated content. |
+| Evidence search list auto-behaviour | Expand on `activeQuery` set, collapse on clear | Driven by existing `evidence_search` / `evidence_search_complete` events — no new data protocol. |
+| No per-line summary card stripping in synthesis parser | Removed from `_emit_line()` entirely | `.rstrip()` was destroying `\n` on every line; extraction handled correctly at section level. |
+| Session cache version | Bumped to 6 | Added `stepSummaries` and `summaryCards` maps. |
+
+### Files created
+
+- `frontend/src/components/analysis/ArtifactSummaryCard.tsx` — renders summary card at top of each artifact
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/orchestrator.py` — chat progress yields, step summary / summary card extraction and emission, synthesis section parser enhancements
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md` — `<step_summary>` and `<summary_card>` output instructions
+- `src/food_policy_impact_tool/llm/prompts/analysis_scan.md` — `<summary_card>` output instructions
+- `src/food_policy_impact_tool/llm/prompts/analysis_synthesis.md` — per-section `<summary_card>` output instructions
+
+**Frontend:**
+- `frontend/src/lib/types.ts` — `SummaryCard`, `StepSummaryEvent`, `SummaryCardEvent` interfaces
+- `frontend/src/lib/analysis-sections.ts` — `stripArtifactTailBlocks()`, `normalizeMarkdownBlockBreaks()`, `buildSgLabels()`, `countUniqueEvidenceSources()`, `formatSubgroupSearchingStatus()`, `formatSubgroupWritingStatus()`, `SYNTHESIS_ACTIVE_STATUS`, `ActiveStepPhase`
+- `frontend/src/lib/grounding-badges.ts` — streaming stripping for `<summary_card>` and `<step_summary>` partials
+- `frontend/src/lib/session-cache.ts` — v6 with `stepSummaries` and `summaryCards`; hydration helpers
+- `frontend/src/components/chat/ChatContainer.tsx` — `activeStepPhase`, `stepSummaries`, `summaryCards`, `sgLabels` state; event handlers; props passed to sidebar and analysis view
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — SG labels, phase subtitles, auto-expand/collapse SearchList, SubGroupSection sync, synthesis active status
+- `frontend/src/components/analysis/AnalysisView.tsx` — passes `summaryCards` and `sectionId` to panel
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — renders `ArtifactSummaryCard`, strips tail blocks and normalises block breaks
