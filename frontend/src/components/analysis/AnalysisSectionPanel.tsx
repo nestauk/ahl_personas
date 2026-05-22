@@ -33,6 +33,7 @@ interface AnalysisSectionPanelProps {
   sectionType?: "subgroup" | "synthesis";
   confirmedSubGroups?: SubGroup[];
   onNavigateToSection?: (sectionId: string) => void;
+  onOpenEvidenceDrawer?: (targetSourceName?: string) => void;
 }
 
 export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
@@ -44,6 +45,7 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   sectionType = "subgroup",
   confirmedSubGroups,
   onNavigateToSection,
+  onOpenEvidenceDrawer,
 }: AnalysisSectionPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -154,6 +156,7 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
             sectionType={sectionType}
             confirmedSubGroups={confirmedSubGroups}
             onNavigateToSection={onNavigateToSection}
+            onOpenEvidenceDrawer={onOpenEvidenceDrawer}
             isStreaming={isStreaming}
           />
         </>

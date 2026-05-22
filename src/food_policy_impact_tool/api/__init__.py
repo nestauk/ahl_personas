@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from food_policy_impact_tool.api.dependencies import init_retriever, shutdown_retriever
-from food_policy_impact_tool.api.routes import chat, ingest
+from food_policy_impact_tool.api.routes import chat, evidence, ingest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,4 +35,5 @@ app.add_middleware(
 )
 
 app.include_router(chat.router, prefix="/api/v1")
+app.include_router(evidence.router, prefix="/api/v1")
 app.include_router(ingest.router, prefix="/api/v1")

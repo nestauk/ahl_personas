@@ -8,6 +8,7 @@ import { MessageList } from "./MessageList";
 import { Header } from "../ui/Header";
 import { SpecificationSidebar } from "../specification/SpecificationSidebar";
 import { AnalysisView } from "../analysis/AnalysisView";
+import { EvidenceDrawer } from "../evidence/EvidenceDrawer";
 import { buildSpecBlock } from "@/lib/spec-helpers";
 import {
   clearSession,
@@ -27,6 +28,8 @@ import {
   type AnalysisStep,
   type ConversationStage,
   type EvidenceSearchRecord,
+  type EvidenceSource,
+  type EvidenceSourcesResponse,
   type ProposedSubGroups,
   type RawEvidenceSearch,
   type SpecMetadata,
@@ -139,6 +142,11 @@ export function ChatContainer() {
     completed: number;
     total: number;
   } | null>(null);
+
+  const [evidenceDrawerOpen, setEvidenceDrawerOpen] = useState(false);
+  const [evidenceDrawerTarget, setEvidenceDrawerTarget] = useState<string | null>(null);
+  const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[] | null>(null);
+  const evidenceSourcesFetchedRef = useRef(false);
 
   const specMetaRef = useRef(specMeta);
   specMetaRef.current = specMeta;
@@ -620,6 +628,8 @@ export function ChatContainer() {
     setSummaryCards(new Map());
     setActiveStepPhase(null);
     setScanCategoryProgress(null);
+    setEvidenceDrawerOpen(false);
+    setEvidenceDrawerTarget(null);
     lastProcessedDataIdx.current = -1;
     checkpointReachedRef.current = false;
     pendingDeltasRef.current.clear();
@@ -776,6 +786,40 @@ export function ChatContainer() {
     });
   }, []);
 
+  const fetchEvidenceSources = useCallback(async () => {
+    if (evidenceSourcesFetchedRef.current) return;
+    evidenceSourcesFetchedRef.current = true;
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/evidence/sources");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: EvidenceSourcesResponse = await res.json();
+      setEvidenceSources(data.sources);
+    } catch (err) {
+      console.error("Failed to fetch evidence sources:", err);
+      evidenceSourcesFetchedRef.current = false;
+    }
+  }, []);
+
+  const handleOpenEvidenceDrawer = useCallback(
+    (targetSourceName?: string) => {
+      setEvidenceDrawerOpen(true);
+      if (targetSourceName) {
+        setEvidenceDrawerTarget(targetSourceName);
+      }
+      fetchEvidenceSources();
+    },
+    [fetchEvidenceSources],
+  );
+
+  const handleCloseEvidenceDrawer = useCallback(() => {
+    setEvidenceDrawerOpen(false);
+    setEvidenceDrawerTarget(null);
+  }, []);
+
+  const handleClearEvidenceTarget = useCallback(() => {
+    setEvidenceDrawerTarget(null);
+  }, []);
+
   const handleSelectPolicy = useCallback(
     (description: string) => {
       append({ role: "user", content: description });
@@ -826,7 +870,12 @@ export function ChatContainer() {
 
   return (
     <div className="flex h-screen flex-col">
-      <Header onNewSession={handleNewSession} stage={stage} />
+      <Header
+        onNewSession={handleNewSession}
+        stage={stage}
+        sourceCount={evidenceSources?.length ?? null}
+        onOpenEvidenceDrawer={() => handleOpenEvidenceDrawer()}
+      />
       <div className="flex min-h-0 flex-1">
         {/* Sidebar (left, fixed width) */}
         <SpecificationSidebar
@@ -888,10 +937,23 @@ export function ChatContainer() {
               confirmedSubGroups={confirmedSubGroups}
               synthesisComplete={synthesisComplete}
               onNavigateToSection={handleSelectSection}
+              onOpenEvidenceDrawer={handleOpenEvidenceDrawer}
             />
           </div>
         )}
       </div>
+
+      <EvidenceDrawer
+        open={evidenceDrawerOpen}
+        onClose={handleCloseEvidenceDrawer}
+        sources={evidenceSources}
+        targetSource={evidenceDrawerTarget}
+        onClearTarget={handleClearEvidenceTarget}
+        subgroupEvidence={subgroupEvidence}
+        confirmedSubGroups={confirmedSubGroups}
+        hasAnalysis={analysisProgress.steps.length > 0}
+        onNavigateToSubgroup={handleSelectSection}
+      />
     </div>
   );
 }

@@ -34,6 +34,7 @@ interface AnalysisViewProps {
   confirmedSubGroups?: SubGroup[] | null;
   synthesisComplete?: boolean;
   onNavigateToSection?: (sectionId: string) => void;
+  onOpenEvidenceDrawer?: (targetSourceName?: string) => void;
 }
 
 function buildSummaryContent(data: PolicySummaryData): string {
@@ -68,6 +69,7 @@ export function AnalysisView({
   confirmedSubGroups,
   synthesisComplete = false,
   onNavigateToSection,
+  onOpenEvidenceDrawer,
 }: AnalysisViewProps) {
   const effectiveSection = activeSection ?? (policySummary ? "policy_summary" : null);
 
@@ -196,6 +198,7 @@ export function AnalysisView({
           sectionType={isSynthesis ? "synthesis" : "subgroup"}
           confirmedSubGroups={confirmedSubGroups ?? undefined}
           onNavigateToSection={onNavigateToSection}
+          onOpenEvidenceDrawer={onOpenEvidenceDrawer}
         />
       )}
     </div>
