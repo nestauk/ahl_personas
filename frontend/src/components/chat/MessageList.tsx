@@ -1,7 +1,7 @@
 "use client";
 
 import type { Message } from "ai";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ConversationStage } from "@/lib/types";
 import { MessageBubble } from "./MessageBubble";
 import { PolicyCards } from "./PolicyCards";
@@ -13,20 +13,44 @@ interface MessageListProps {
   onSelectPolicy: (description: string) => void;
 }
 
+const NEAR_BOTTOM_THRESHOLD = 120;
+
 export function MessageList({
   messages,
   isLoading,
   stage,
   onSelectPolicy,
 }: MessageListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const lastScrollTime = useRef(0);
+  const userScrolledUp = useRef(false);
+  const prevMessageCount = useRef(messages.length);
+
+  const isNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_THRESHOLD;
+  }, []);
 
   useEffect(() => {
-    // Throttle auto-scroll to prevent layout thrashing during fast streaming
-    const now = Date.now();
-    if (now - lastScrollTime.current < 400) return;
-    lastScrollTime.current = now;
+    const el = scrollRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      userScrolledUp.current = !isNearBottom();
+    };
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [isNearBottom]);
+
+  useEffect(() => {
+    const newMessage = messages.length > prevMessageCount.current;
+    prevMessageCount.current = messages.length;
+
+    if (newMessage) {
+      userScrolledUp.current = false;
+    }
+
+    if (userScrolledUp.current) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -40,7 +64,9 @@ export function MessageList({
           <p className="mb-6 text-sm leading-relaxed text-[var(--color-text-muted)]">
             Describe a food environment policy you&apos;d like to analyse for
             equity impact. This can be a rough idea — I&apos;ll ask some
-            questions to clarify the details.
+            questions to clarify the details. You can skip any question if
+            you&apos;re unsure — it&apos;ll become an open question for the
+            analysis to explore.
           </p>
           <PolicyCards onSelectPolicy={onSelectPolicy} />
         </div>
@@ -52,7 +78,7 @@ export function MessageList({
   const lastIsAssistant = messages[lastIdx]?.role === "assistant";
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-6">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
         {messages.map((message, i) => (
           <MessageBubble

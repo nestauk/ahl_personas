@@ -2,12 +2,14 @@
 
 import { FileText, Loader2 } from "lucide-react";
 import type { AnalysisSection } from "@/lib/types";
+import { TAXONOMY_LABELS } from "@/lib/types";
 import { AnalysisSectionPanel } from "./AnalysisSectionPanel";
 
 interface PolicySummaryData {
   name: string;
   summary: string;
   openQuestions: string[];
+  taxonomyMapping: Record<string, string[]>;
 }
 
 interface AnalysisViewProps {
@@ -19,8 +21,18 @@ interface AnalysisViewProps {
 
 function buildSummaryContent(data: PolicySummaryData): string {
   let content = data.summary;
+
+  const entries = Object.entries(data.taxonomyMapping);
+  if (entries.length > 0) {
+    content += "\n\n### Taxonomy\n\n";
+    for (const [key, values] of entries) {
+      const label = TAXONOMY_LABELS[key] || key.replace(/_/g, " ");
+      content += `- **${label}**: ${values.join(", ")}\n`;
+    }
+  }
+
   if (data.openQuestions.length > 0) {
-    content += "\n\n### For the analysis to consider\n\n";
+    content += "\n### Open questions\n\n";
     for (const q of data.openQuestions) {
       content += `- ${q}\n`;
     }
@@ -38,7 +50,7 @@ export function AnalysisView({
 
   if (effectiveSection === "policy_summary" && policySummary) {
     return (
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-8 py-3">
           <h2 className="text-sm font-semibold text-[var(--color-text)]">
             {policySummary.name}
@@ -85,7 +97,7 @@ export function AnalysisView({
   const isSynthesis = effectiveSection === "synthesis";
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div
         className={`border-b px-8 py-3 ${
           isSynthesis

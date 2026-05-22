@@ -121,6 +121,8 @@ export function ChatContainer() {
   const pendingDeltasRef = useRef<Map<string, string>>(new Map());
   const flushRafRef = useRef<number | null>(null);
 
+  const newSectionsRef = useRef<string[]>([]);
+
   const flushPendingDeltas = useCallback(() => {
     flushRafRef.current = null;
     const pending = pendingDeltasRef.current;
@@ -128,6 +130,8 @@ export function ChatContainer() {
 
     const batch = new Map(pending);
     pending.clear();
+
+    newSectionsRef.current = [];
 
     setAnalysisSections((prev) => {
       const next = new Map(prev);
@@ -150,14 +154,18 @@ export function ChatContainer() {
             name = subgroups[idx]?.name || `Sub-group ${idx + 1}`;
           }
           next.set(sectionId, { id: sectionId, name, content: delta });
-          if (sectionId === "scan") {
-            setActiveSection("scan");
-            setStreamingSection("scan");
-          }
+          newSectionsRef.current.push(sectionId);
         }
       });
       return next;
     });
+
+    for (const sectionId of newSectionsRef.current) {
+      if (sectionId === "scan") {
+        setActiveSection("scan");
+        setStreamingSection("scan");
+      }
+    }
   }, []);
 
   const lastProcessedDataIdx = useRef(-1);
@@ -309,7 +317,7 @@ export function ChatContainer() {
         setStreamingSection(null);
 
         if (newStage === "chatting" && !checkpointReachedRef.current) {
-          const sectionCount = analysisSections.size;
+          const sectionCount = analysisSectionsRef.current.size;
           setMessages((prev) => [
             ...prev,
             {
@@ -323,7 +331,8 @@ export function ChatContainer() {
       }
     }
     lastProcessedDataIdx.current = data.length - 1;
-  }, [data, setMessages, analysisSections.size, flushPendingDeltas]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, setMessages, flushPendingDeltas]);
 
   useEffect(() => {
     if (!initialCache) return;
@@ -571,6 +580,7 @@ export function ChatContainer() {
         name: specMeta.spec.policy_name || "Policy Summary",
         summary: specMeta.spec.policy_summary,
         openQuestions: specMeta.spec.open_questions,
+        taxonomyMapping: specMeta.spec.taxonomy_mapping,
       }
     : null;
 
@@ -598,7 +608,7 @@ export function ChatContainer() {
         />
 
         {/* Chat (centre, always present) */}
-        <div className={`flex flex-col ${chatWidth}`}>
+        <div className={`flex min-h-0 flex-col ${chatWidth}`}>
           <MessageList
             messages={messages}
             isLoading={isLoading}
@@ -620,7 +630,7 @@ export function ChatContainer() {
         {/* Artifacts panel (right, conditional) */}
         {showArtifacts && (
           <div
-            className={`flex flex-col border-l border-[var(--color-border)] ${artifactsWidth}`}
+            className={`flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-border)] ${artifactsWidth}`}
           >
             <AnalysisView
               policySummary={policySummary}

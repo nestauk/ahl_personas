@@ -6,15 +6,33 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { renderGroundingBadges } from "@/lib/grounding-badges";
 
-const SPEC_BLOCK_REGEX = /\s*<policy_spec>[\s\S]*?<\/policy_spec>\s*/g;
-const SUBGROUPS_BLOCK_REGEX =
+const COMPLETE_SPEC_REGEX = /\s*<policy_spec>[\s\S]*?<\/policy_spec>\s*/g;
+const COMPLETE_SUBGROUPS_REGEX =
   /\s*<proposed_sub_groups>[\s\S]*?<\/proposed_sub_groups>\s*/g;
 
+const TRAILING_INCOMPLETE_BLOCK_REGEX =
+  /\s*<(?:policy_spec|proposed_sub_groups)>[\s\S]*$/;
+const TRAILING_PARTIAL_TAG_REGEX = /\s*<[a-z_]{0,25}$/;
+
 function stripStructuredBlocks(content: string): string {
-  return content
-    .replace(SPEC_BLOCK_REGEX, "")
-    .replace(SUBGROUPS_BLOCK_REGEX, "")
-    .trimEnd();
+  let result = content
+    .replace(COMPLETE_SPEC_REGEX, "")
+    .replace(COMPLETE_SUBGROUPS_REGEX, "");
+
+  result = result.replace(TRAILING_INCOMPLETE_BLOCK_REGEX, "");
+
+  const trailingMatch = result.match(TRAILING_PARTIAL_TAG_REGEX);
+  if (trailingMatch) {
+    const fragment = trailingMatch[0].trimStart();
+    if (
+      "<policy_spec>".startsWith(fragment) ||
+      "<proposed_sub_groups>".startsWith(fragment)
+    ) {
+      result = result.slice(0, trailingMatch.index);
+    }
+  }
+
+  return result.trimEnd();
 }
 
 interface MessageBubbleProps {

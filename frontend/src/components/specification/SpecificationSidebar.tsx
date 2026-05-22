@@ -64,6 +64,8 @@ function CompactSpecView({
       : spec.policy_summary
     : null;
 
+  const hasTaxonomy = Object.keys(spec.taxonomy_mapping).length > 0;
+
   return (
     <div className="border-b border-[var(--color-border)]">
       <button
@@ -97,6 +99,19 @@ function CompactSpecView({
             <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
               {truncatedSummary}
             </p>
+          )}
+          {hasTaxonomy && (
+            <div className="mt-2.5">
+              <TaxonomyPills taxonomyMapping={spec.taxonomy_mapping} />
+            </div>
+          )}
+          {spec.open_questions.length > 0 && (
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+              <HelpCircle size={12} />
+              <span>
+                {spec.open_questions.length} open question{spec.open_questions.length !== 1 ? "s" : ""}
+              </span>
+            </div>
           )}
           {onViewSummary && (
             <button
@@ -402,7 +417,7 @@ export function SpecificationSidebar({
   const hasSubGroups =
     confirmedSubGroups && confirmedSubGroups.length > 0;
   const subGroupsEditable =
-    isAnalysing && hasSubGroups && !hasAnalysisStarted;
+    !!(isAnalysing && hasSubGroups && !hasAnalysisStarted);
 
   let scanSummary: string | null = null;
   if (
@@ -591,7 +606,7 @@ export function SpecificationSidebar({
           <div className="mt-4 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
             <HelpCircle size={12} />
             <span>
-              {spec.open_questions.length} question{spec.open_questions.length !== 1 ? "s" : ""} for the analysis
+              {spec.open_questions.length} open question{spec.open_questions.length !== 1 ? "s" : ""}
             </span>
           </div>
         )}
