@@ -135,6 +135,10 @@ export function ChatContainer() {
   );
   const [activeStepPhase, setActiveStepPhase] =
     useState<ActiveStepPhase>(null);
+  const [scanCategoryProgress, setScanCategoryProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
   const specMetaRef = useRef(specMeta);
   specMetaRef.current = specMeta;
@@ -350,6 +354,14 @@ export function ChatContainer() {
             }
           } else {
             const sectionId = `sg_${index ?? 0}`;
+            setAnalysisSections((prev) => {
+              if (prev.has(sectionId)) return prev;
+              const subgroups = confirmedSubGroupsRef.current;
+              const sgName = subgroups?.[index ?? 0]?.name ?? `Sub-group ${(index ?? 0) + 1}`;
+              const next = new Map(prev);
+              next.set(sectionId, { id: sectionId, name: sgName, content: "" });
+              return next;
+            });
             setStreamingSectionIfChanged(sectionId);
             setActiveStepPhase(null);
             if (activeSectionRef.current === null) {
@@ -482,6 +494,14 @@ export function ChatContainer() {
         });
       }
 
+      if (eventType === "scan_category_complete") {
+        const completed = item.completed as number;
+        const total = item.total as number;
+        setScanCategoryProgress((prev) =>
+          prev && prev.completed === completed ? prev : { completed, total },
+        );
+      }
+
       if (eventType === "analysis_checkpoint") {
         checkpointReachedRef.current = true;
       }
@@ -586,6 +606,7 @@ export function ChatContainer() {
     setStepSummaries(new Map());
     setSummaryCards(new Map());
     setActiveStepPhase(null);
+    setScanCategoryProgress(null);
     lastProcessedDataIdx.current = -1;
     checkpointReachedRef.current = false;
     pendingDeltasRef.current.clear();
@@ -815,6 +836,7 @@ export function ChatContainer() {
           stepSummaries={stepSummaries}
           sgLabels={sgLabels}
           streamingSection={streamingSection}
+          scanCategoryProgress={scanCategoryProgress}
         />
 
         {/* Chat (centre, always present) */}

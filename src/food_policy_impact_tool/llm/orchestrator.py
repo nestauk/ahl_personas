@@ -17,6 +17,17 @@ from food_policy_impact_tool.models.evidence import RetrievalResult
 logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+_prompt_cache: dict[str, str] = {}
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    """Return a singleton AsyncOpenAI client, reusing the connection pool across requests."""
+    global _client
+    if _client is None:
+        settings = get_settings()
+        _client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _client
 _SPEC_BLOCK_PATTERN = re.compile(
     r"<policy_spec>\s*(.*?)\s*</policy_spec>",
     re.DOTALL,
@@ -70,6 +81,12 @@ _SYNTHESIS_HEADING_LINES: list[tuple[re.Pattern[str], str]] = [
     ),
     (re.compile(r"^Design Improvements\s*$", re.IGNORECASE), "design_improvements"),
 ]
+
+_SYNTHESIS_SECTION_NAMES: dict[str, str] = {
+    "equity_assessment": "Equity Assessment",
+    "risks_provocations": "Risks & Provocations",
+    "design_improvements": "Design Improvements",
+}
 
 _SYNTHESIS_SECTION_PROGRESS: dict[str, str] = {
     "equity_assessment": (
@@ -282,7 +299,9 @@ SEARCH_EVIDENCE_TOOL = {
 
 
 def _load_prompt(filename: str) -> str:
-    return (_PROMPTS_DIR / filename).read_text(encoding="utf-8")
+    if filename not in _prompt_cache:
+        _prompt_cache[filename] = (_PROMPTS_DIR / filename).read_text(encoding="utf-8")
+    return _prompt_cache[filename]
 
 
 def _format_evidence_context(results: list[RetrievalResult]) -> str:
@@ -664,13 +683,16 @@ async def _stream_subgroup_with_tools(
             sg_name, tool_call_round, len(api_messages),
         )
 
-        stream = await _stream_with_retry(
-            client,
-            model=settings.openai_model,
+        subgroup_kwargs: dict[str, Any] = dict(
+            model=settings.openai_analysis_model,
             messages=api_messages,
             tools=[SEARCH_EVIDENCE_TOOL],
             stream=True,
         )
+        if settings.openai_analysis_reasoning_effort:
+            subgroup_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
+
+        stream = await _stream_with_retry(client, **subgroup_kwargs)
 
         collected_text: list[str] = []
         tool_calls_by_index: dict[int, dict[str, Any]] = {}
@@ -875,12 +897,15 @@ async def _stream_synthesis(
         len(analyses_text),
     )
 
-    stream = await _stream_with_retry(
-        client,
-        model=settings.openai_model,
+    synthesis_kwargs: dict[str, Any] = dict(
+        model=settings.openai_analysis_model,
         messages=api_messages,
         stream=True,
     )
+    if settings.openai_analysis_reasoning_effort:
+        synthesis_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
+
+    stream = await _stream_with_retry(client, **synthesis_kwargs)
 
     first_token = True
     synth_start = time.monotonic()
@@ -916,7 +941,7 @@ async def stream_analysis_chain(
         Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
     """
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = _get_client()
 
     chain_start = time.monotonic()
     n = len(confirmed_subgroups)
@@ -997,19 +1022,20 @@ async def stream_analysis_chain(
                 "index": i,
                 "status": "complete",
             })
+            summary_line = f" *{step_summary}*" if step_summary else ""
             if i + 1 < n:
                 next_name = confirmed_subgroups[i + 1].get(
                     "name", f"Sub-group {i + 2}",
                 )
                 yield (
                     "text",
-                    f"✓ Completed analysis for **{sg_name}**. "
+                    f"✓ Completed analysis for **{sg_name}**.{summary_line} "
                     f"Moving to **{next_name}**...\n\n",
                 )
             else:
                 yield (
                     "text",
-                    f"✓ Completed analysis for **{sg_name}**. "
+                    f"✓ Completed analysis for **{sg_name}**.{summary_line} "
                     f"All sub-group analyses complete.\n\n",
                 )
         except Exception:
@@ -1068,7 +1094,7 @@ async def stream_synthesis_only(
         Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
     """
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = _get_client()
 
     policy_spec = _extract_policy_spec_from_history(messages)
 
@@ -1104,6 +1130,8 @@ async def stream_synthesis_only(
                         "section_id": section_id,
                         "summary": summary,
                     })
+                    label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
+                    yield ("text", f"✓ **{label}** complete. *{summary}*\n\n")
                 for section_id, card in parser.drain_pending_summary_cards():
                     yield ("data", {
                         "type": "summary_card",
@@ -1129,6 +1157,8 @@ async def stream_synthesis_only(
                 "section_id": section_id,
                 "summary": summary,
             })
+            label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
+            yield ("text", f"✓ **{label}** complete. *{summary}*\n\n")
         for section_id, card in parser.drain_pending_summary_cards():
             yield ("data", {
                 "type": "summary_card",
@@ -1147,6 +1177,8 @@ async def stream_synthesis_only(
                 "section_id": section_id,
                 "summary": summary,
             })
+            label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
+            yield ("text", f"✓ **{label}** complete. *{summary}*\n\n")
         for section_id, card in parser.drain_pending_summary_cards():
             yield ("data", {
                 "type": "summary_card",
@@ -1206,7 +1238,7 @@ async def stream_response(
         Tuples of (type, content) where type is 'text' or 'data'.
     """
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = _get_client()
 
     if run_synthesis and analysis_texts:
         async for part in stream_synthesis_only(
@@ -1239,15 +1271,29 @@ async def stream_response(
             messages=messages,
         )
 
-        logger.info("[scan] Calling LLM (model=%s)", settings.openai_model)
-        stream = await client.chat.completions.create(
-            model=settings.openai_model,
+        logger.info("[scan] Calling LLM (model=%s)", settings.openai_scan_model)
+        scan_kwargs: dict[str, Any] = dict(
+            model=settings.openai_scan_model,
             messages=api_messages,
             stream=True,
         )
+        if settings.openai_scan_reasoning_effort:
+            scan_kwargs["reasoning_effort"] = settings.openai_scan_reasoning_effort
+        stream = await client.chat.completions.create(**scan_kwargs)
 
         full_response: list[str] = []
         token_count = 0
+        _scan_category_headings = {
+            "### Geography",
+            "### Household and Financial Context",
+            "### Time, Routine and Domestic Capacity",
+            "### Emotional and Cognitive Bandwidth",
+            "### Diet, Food and Health Needs",
+            "### Ethnicity and Cultural Food Practices",
+        }
+        categories_seen = 0
+        line_buffer = ""
+
         async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:
@@ -1255,12 +1301,36 @@ async def stream_response(
                 token_count += 1
                 if token_count == 1:
                     logger.info("[scan] First token received — streaming to panel")
+
+                line_buffer += delta.content
+                while "\n" in line_buffer:
+                    line, line_buffer = line_buffer.split("\n", 1)
+                    stripped = line.strip()
+                    if stripped in _scan_category_headings:
+                        if categories_seen > 0:
+                            yield ("data", {
+                                "type": "scan_category_complete",
+                                "completed": categories_seen,
+                                "total": 6,
+                            })
+                        categories_seen += 1
+
                 yield ("analysis_content", {
                     "section": "scan",
                     "delta": delta.content,
                 })
 
-        logger.info("[scan] Stream complete — %d chunks received", token_count)
+        if categories_seen > 0:
+            yield ("data", {
+                "type": "scan_category_complete",
+                "completed": categories_seen,
+                "total": 6,
+            })
+
+        logger.info(
+            "[scan] Stream complete — %d chunks received, %d categories detected",
+            token_count, categories_seen,
+        )
         yield ("data", {"type": "analysis_step", "step": "scan", "status": "complete"})
 
         full_text = "".join(full_response)
@@ -1290,10 +1360,15 @@ async def stream_response(
                 **subgroups_data,
             })
 
+            scan_summary_text = ""
+            if scan_card and isinstance(scan_card.get("summary"), str):
+                scan_summary_text = f" *{scan_card['summary']}*"
+
             summary = (
                 f"I've assessed all population characteristics against this policy. "
                 f"{high_count} rated as highly relevant — "
-                f"see the full assessment in the analysis panel. "
+                f"see the full assessment in the analysis panel."
+                f"{scan_summary_text} "
                 f"I've proposed {subgroup_count} sub-groups for detailed analysis. "
                 f"Review and confirm them in the sidebar."
             )
@@ -1320,11 +1395,26 @@ async def stream_response(
         evidence_context=evidence_context,
     )
 
-    stream = await client.chat.completions.create(
-        model=settings.openai_model,
+    model = (
+        settings.openai_socratic_model
+        if stage == "specifying"
+        else settings.openai_chat_model
+    )
+    reasoning_effort = (
+        settings.openai_socratic_reasoning_effort
+        if stage == "specifying"
+        else settings.openai_chat_reasoning_effort
+    )
+
+    chat_kwargs: dict[str, Any] = dict(
+        model=model,
         messages=api_messages,
         stream=True,
     )
+    if reasoning_effort:
+        chat_kwargs["reasoning_effort"] = reasoning_effort
+
+    stream = await client.chat.completions.create(**chat_kwargs)
 
     full_response = []
     async for chunk in stream:

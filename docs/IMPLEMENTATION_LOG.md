@@ -1285,3 +1285,98 @@ Six quality-of-life improvements across the analysis workflow:
 - `frontend/src/components/specification/SpecificationSidebar.tsx` — `SearchList` now accepts `isStepActive` prop with `userOverride` ref for manual toggle tracking; removed `Clock` import and time estimate banner
 - `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — removed `!isStreaming` guard on `BadgePopoverManager`; passes `isStreaming` prop through
 - `frontend/src/components/analysis/BadgePopover.tsx` — accepts `isStreaming` prop; snapshots bounding rect for streaming anchors; skips content-change auto-close during streaming
+
+---
+
+## 2026-05-22 — Latency UX improvements: skeletons, per-task models, reasoning effort, and progress
+
+### What was done
+
+Six complementary changes to reduce perceived and actual latency across the analysis pipeline, plus chat narration improvements and a prompt fix.
+
+### 1. Artefact skeleton scaffolds
+
+When an artefact section starts streaming but no content has arrived yet (during the LLM's time-to-first-token), the panel now renders a **skeleton scaffold** with real section headings and shimmer placeholder content instead of a blank panel. Five skeleton variants match the prescribed output structures:
+
+- **Scan**: 6 category headings with table header rows and shimmer cells (Geography, Household and Financial Context, etc.)
+- **Sub-group**: 5 sections (Who is impacted, How they are impacted, Benefits and harms, Impact dimensions, Uncertainties) with shimmer bullet placeholders
+- **Equity Assessment**: 5 sections (Who benefits most, Who benefits least, Inequality direction, Unintended distributional effects, Implementation burden)
+- **Risks & Provocations**: 5 sections (Evidence gaps, Assumption risks, Equity tensions, Unintended consequences, Implementation risks)
+- **Design Improvements**: 3 thematic recommendation groups with bullet placeholders
+
+Skeleton type is determined from the section ID (`scan`, `sg_*`, or synthesis section IDs). The skeleton fades in with a CSS animation and is replaced by real content as soon as the first token arrives.
+
+Sub-group sections are now pre-created with empty content when their `analysis_step active` event fires (matching the pattern already used for scan and synthesis sections), ensuring the skeleton renders instead of the generic "Preparing analysis…" spinner.
+
+### 2. Per-task model selection
+
+Not all LLM calls need the same model. Four new settings allow independent model selection per task, each falling back to `OPENAI_MODEL` if not set:
+
+| Setting | Call site | Default rationale |
+|---------|-----------|-------------------|
+| `OPENAI_SCAN_MODEL` | Population relevance scan | Classification task — lighter model reduces TTFT |
+| `OPENAI_ANALYSIS_MODEL` | Per-sub-group analysis + synthesis | Core analytical depth — keep on the strongest model |
+| `OPENAI_SOCRATIC_MODEL` | Socratic policy specification | Conversational — lighter model acceptable |
+| `OPENAI_CHAT_MODEL` | Follow-up evidence-grounded chat | Conversational Q&A |
+
+Implemented via a `model_validator` on `Settings` that fills `None` values from `openai_model`. Each call site in the orchestrator uses its respective setting.
+
+### 3. Per-task reasoning effort
+
+GPT-5 supports a `reasoning_effort` parameter (`minimal`, `low`, `medium`, `high`) that trades reasoning depth for speed. Four new optional settings:
+
+| Setting | Recommended | Rationale |
+|---------|-------------|-----------|
+| `OPENAI_SOCRATIC_REASONING_EFFORT` | `low` | Conversational questioning — `low` reduces TTFT substantially |
+| `OPENAI_SCAN_REASONING_EFFORT` | `low` | Classification with heuristic mapping — doesn't need deep reasoning |
+| `OPENAI_ANALYSIS_REASONING_EFFORT` | (omit) | Core analytical output — use model default |
+| `OPENAI_CHAT_REASONING_EFFORT` | `low` | Follow-up Q&A |
+
+When not set, the parameter is omitted entirely and the model uses its default. The parameter is conditionally added to kwargs only when a value is configured.
+
+### 4. Singleton OpenAI client and prompt caching
+
+The `AsyncOpenAI` client was previously instantiated fresh on every request (`stream_response`, `stream_analysis_chain`, `stream_synthesis_only`), meaning each request paid the cost of creating a new `httpx.AsyncClient` connection pool and TLS handshake. Now a singleton via `_get_client()` — the connection pool is created once and reused across all requests.
+
+Prompt files (previously read from disk on every call via `_load_prompt()`) are now cached in a module-level dict after first read.
+
+### 5. Per-category scan progress events
+
+The scan streaming loop now detects category heading boundaries (`### Geography`, `### Household and Financial Context`, etc.) via a line buffer during streaming. When a new heading appears, a `scan_category_complete` data event is emitted with the count of completed categories.
+
+The sidebar scan step subtitle updates progressively: "Assessing population characteristics…" → "1 of 6 categories assessed" → "3 of 6 categories assessed" → completion summary.
+
+### 6. Step summaries in chat narration
+
+Step summaries (the one-sentence `<step_summary>` extracted from each artefact) now flow into the chat alongside progress messages:
+
+- **Sub-group completion**: "✓ Completed analysis for **{name}**. *{summary}* Moving to **{next}**..."
+- **Scan completion**: The chat summary now includes the summary card's `summary` field in italics.
+- **Synthesis section completion**: "✓ **Equity Assessment** complete. *{summary}*"
+
+### 7. Scan prompt: Part 2 heading format fix
+
+The scan prompt previously showed `sg_1`, `sg_2` as IDs in the JSON example without specifying a different format for the Part 2 prose. The LLM was copying these internal IDs into visible output. Fixed by adding explicit numbered heading format for Part 2 (`#### 1. Name`, `#### 2. Name`) and a formatting rule prohibiting internal IDs in readable output.
+
+### Files created
+
+- `frontend/src/components/analysis/ArtifactSkeleton.tsx` — generalised skeleton component for all 5 artefact types
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/core/config.py` — per-task model settings (`openai_scan_model`, `openai_analysis_model`, `openai_socratic_model`, `openai_chat_model`), per-task reasoning effort settings, `model_validator` for defaults
+- `src/food_policy_impact_tool/llm/orchestrator.py` — singleton `_get_client()`, prompt caching in `_load_prompt()`, per-task model and reasoning effort at all four call sites, scan category heading detection with `scan_category_complete` events, step summary text in sub-group/scan/synthesis chat messages, `_SYNTHESIS_SECTION_NAMES` label map
+- `src/food_policy_impact_tool/llm/prompts/analysis_scan.md` — Part 2 numbered heading format, formatting rule against internal IDs in prose
+- `.env.example` — documented all per-task model and reasoning effort settings
+
+**Frontend:**
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — skeleton rendering for all section types via `ArtifactSkeleton`, section type detection from `sectionId`
+- `frontend/src/components/chat/ChatContainer.tsx` — `scanCategoryProgress` state, `scan_category_complete` event handler, pre-creation of sub-group sections with empty content on step active
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — `scanCategoryProgress` prop, per-category progress subtitle on scan step
+- `frontend/src/lib/types.ts` — `ScanCategoryCompleteEvent` interface, added to `AnalysisDataEvent` union
+- `frontend/src/app/globals.css` — skeleton shimmer animation, fade-in animation
+
+### Files deleted
+
+- `frontend/src/components/analysis/ScanSkeleton.tsx` — replaced by generalised `ArtifactSkeleton.tsx`

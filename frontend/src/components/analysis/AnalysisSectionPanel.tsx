@@ -17,6 +17,8 @@ import {
 } from "@/lib/grounding-badges";
 import type { RawEvidenceSearch, SubGroup } from "@/lib/types";
 import { BadgePopoverManager } from "./BadgePopover";
+import { ArtifactSkeleton } from "./ArtifactSkeleton";
+import { isSynthesisSection } from "@/lib/analysis-sections";
 
 const TRAILING_PARTIAL_TAG_REGEX = /\s*<[a-z_]{0,25}$/;
 
@@ -114,33 +116,48 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
     return normalizeMarkdownBlockBreaks(withBadges);
   }, [content, isStreaming]);
 
+  const skeletonType = (() => {
+    if (!isStreaming || content.trim()) return null;
+    if (sectionId === "scan") return "scan" as const;
+    if (sectionId?.startsWith("sg_")) return "subgroup" as const;
+    if (sectionId && isSynthesisSection(sectionId))
+      return sectionId as "equity_assessment" | "risks_provocations" | "design_improvements";
+    return null;
+  })();
+
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-      {summaryCard && sectionId && (
-        <ArtifactSummaryCard card={summaryCard} sectionId={sectionId} />
-      )}
-      <div ref={proseRef} className="prose mx-auto max-w-3xl">
-        <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-          {processed}
-        </Markdown>
-        {isStreaming && (
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)]" />
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:150ms]" />
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:300ms]" />
+      {skeletonType ? (
+        <ArtifactSkeleton type={skeletonType} />
+      ) : (
+        <>
+          {summaryCard && sectionId && (
+            <ArtifactSummaryCard card={summaryCard} sectionId={sectionId} />
+          )}
+          <div ref={proseRef} className="prose mx-auto max-w-3xl">
+            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+              {processed}
+            </Markdown>
+            {isStreaming && (
+              <div className="mt-2 flex items-center gap-1.5">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)]" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:150ms]" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:300ms]" />
+              </div>
+            )}
+            <div ref={bottomRef} />
           </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-      <BadgePopoverManager
-        containerRef={proseRef}
-        content={processed}
-        rawEvidence={rawEvidence}
-        sectionType={sectionType}
-        confirmedSubGroups={confirmedSubGroups}
-        onNavigateToSection={onNavigateToSection}
-        isStreaming={isStreaming}
-      />
+          <BadgePopoverManager
+            containerRef={proseRef}
+            content={processed}
+            rawEvidence={rawEvidence}
+            sectionType={sectionType}
+            confirmedSubGroups={confirmedSubGroups}
+            onNavigateToSection={onNavigateToSection}
+            isStreaming={isStreaming}
+          />
+        </>
+      )}
     </div>
   );
 });

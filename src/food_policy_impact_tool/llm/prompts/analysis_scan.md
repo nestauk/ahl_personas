@@ -196,10 +196,15 @@ The category headings must be:
 
 ### Part 2 — Proposed Sub-groups
 
-After the relevance assessment, present 4–6 proposed sub-groups with:
-   - A name (the modifier combination, e.g. "Urban deprived + Financially strained + Family with children")
-   - The modifiers included
-   - A brief rationale (2–3 sentences) explaining why this sub-group was selected and what differential impact you expect
+After the relevance assessment, present 4–6 proposed sub-groups. Use numbered headings with the sub-group name — do NOT use internal IDs like `sg_1` in the prose output. Format each as:
+
+#### 1. Urban deprived + Financially strained + Family with children
+
+**Modifiers:** Urban deprived; Financially strained; Family with children.
+
+**Rationale:** 2–3 sentences explaining why this sub-group was selected and what differential impact you expect.
+
+Continue with `#### 2.`, `#### 3.`, etc. The `sg_1`, `sg_2` identifiers are only for the JSON block in Part 3 — never use them in the readable output.
 
 ### Part 3 — Structured output
 
@@ -274,6 +279,7 @@ Rules for the JSON:
 - Use **bold lead-ins on bullet points**: `- **Financial impact**: The cap reduces...` not `- The cap reduces the financial...`
 - Use **horizontal rules** (`---`) between major sections when a heading alone isn't enough visual break.
 - **Never** produce a paragraph longer than 5 sentences. Break it up or use bullets.
+- **Never** use internal identifiers like `sg_1`, `sg_2` in the readable output. These are only for the JSON block. Use numbered headings (1., 2., 3.) or sub-group names in the prose.
 
 ## Summary card (required)
 

@@ -163,6 +163,12 @@ export interface AnalysisCheckpointEvent {
   subgroup_count: number;
 }
 
+export interface ScanCategoryCompleteEvent {
+  type: "scan_category_complete";
+  completed: number;
+  total: number;
+}
+
 export type AnalysisDataEvent =
   | AnalysisStepEvent
   | EvidenceSearchEvent
@@ -170,6 +176,7 @@ export type AnalysisDataEvent =
   | ProposedSubGroupsEvent
   | AnalysisContentEvent
   | AnalysisCheckpointEvent
+  | ScanCategoryCompleteEvent
   | SubgroupEvidenceEvent
   | StepSummaryEvent
   | SummaryCardEvent;

@@ -56,6 +56,7 @@ interface SpecificationSidebarProps {
   stepSummaries?: Map<string, string>;
   sgLabels?: Map<string, string>;
   streamingSection?: string | null;
+  scanCategoryProgress?: { completed: number; total: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +501,7 @@ export function SpecificationSidebar({
   stepSummaries,
   sgLabels,
   streamingSection = null,
+  scanCategoryProgress = null,
 }: SpecificationSidebarProps) {
   const isSpecifying = stage === "specifying";
   const isAnalysing = stage === "analysing";
@@ -552,7 +554,9 @@ export function SpecificationSidebar({
                 label="Identifying affected populations"
                 subtitle={
                   scanStep.status === "active"
-                    ? "Assessing population characteristics…"
+                    ? scanCategoryProgress && scanCategoryProgress.completed > 0
+                      ? `${scanCategoryProgress.completed} of ${scanCategoryProgress.total} categories assessed`
+                      : "Assessing population characteristics…"
                     : scanStep.status === "complete"
                       ? scanSummary
                       : null
