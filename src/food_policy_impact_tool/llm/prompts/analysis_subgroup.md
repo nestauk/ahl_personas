@@ -45,6 +45,18 @@ Place grounding tags **inline after each claim**, not at the end of sections. Ev
 Modifiers and material features:
 {{SUB_GROUP_MODIFIERS}}
 
+## Categorical pattern guidance
+
+If the sub-group description above includes a **categorical pattern** (indicated by "Categorical pattern" in the heading and a "Shared mechanism" section), your analysis should:
+
+- Examine the **shared mechanism** that affects the category as a whole — this is the primary finding
+- Draw specific examples from **multiple modifiers** within the category to illustrate the pattern, showing how the same mechanism manifests across different circumstances
+- Note where specific modifiers within the category might experience the mechanism differently in **degree** (even if the direction is the same)
+- Frame findings at the **category level** — conclusions should apply to the shared pattern, not to any single modifier within it
+- This applies regardless of which category the pattern occurs in — financial, geographic, cultural, capacity, or any other
+
+If no categorical pattern is indicated, ignore this section and analyse the specific modifiers listed above.
+
 ## Output structure
 
 Produce the following sections for this sub-group:

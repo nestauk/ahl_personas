@@ -64,13 +64,16 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         evidence = retriever.retrieve(latest_query, top_k=settings.retrieval_top_k)
     elif request.stage == "analysing" and request.confirmed_subgroups:
         retriever = get_retriever()
+    elif request.run_synthesis:
+        pass
 
     logger.info(
-        "Chat request: stage=%s, %d messages, %d evidence chunks, subgroups=%s",
+        "Chat request: stage=%s, %d messages, %d evidence chunks, subgroups=%s, synthesis=%s",
         request.stage,
         len(request.messages),
         len(evidence),
         "confirmed" if request.confirmed_subgroups else "none",
+        "yes" if request.run_synthesis else "no",
     )
 
     async def generate():
@@ -80,6 +83,8 @@ async def chat(request: ChatRequest) -> StreamingResponse:
             evidence=evidence if evidence else None,
             spec_state=request.spec_state,
             confirmed_subgroups=request.confirmed_subgroups,
+            run_synthesis=request.run_synthesis,
+            analysis_texts=request.analysis_texts,
             retriever=retriever,
         ):
             if part_type == "text":

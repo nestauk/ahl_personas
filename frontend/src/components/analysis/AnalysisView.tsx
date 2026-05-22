@@ -82,17 +82,33 @@ export function AnalysisView({
 
   const isStreaming = streamingSection === effectiveSection;
   const isScan = effectiveSection === "scan";
+  const isSynthesis = effectiveSection === "synthesis";
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-8 py-3">
-        <h2 className="text-sm font-semibold text-[var(--color-text)]">
-          {section.name}
+      <div
+        className={`border-b px-8 py-3 ${
+          isSynthesis
+            ? "border-indigo-200 bg-indigo-50"
+            : "border-[var(--color-border)] bg-[var(--color-surface)]"
+        }`}
+      >
+        <h2
+          className={`text-sm font-semibold ${
+            isSynthesis ? "text-indigo-900" : "text-[var(--color-text)]"
+          }`}
+        >
+          {isSynthesis ? "Equity Assessment and Provocations" : section.name}
         </h2>
         {isScan && (
           <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
             Initial assessment based on policy characteristics — the detailed
             analysis will draw on the evidence base.
+          </p>
+        )}
+        {isSynthesis && (
+          <p className="mt-0.5 text-xs text-indigo-600">
+            Cross-cutting analysis across all sub-groups — patterns, tensions, and gaps.
           </p>
         )}
       </div>

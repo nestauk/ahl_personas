@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  FileText,
   HelpCircle,
   Play,
   Search,
@@ -33,6 +34,8 @@ interface SpecificationSidebarProps {
   confirmedSubGroups?: SubGroup[] | null;
   analysisProgress?: AnalysisProgress;
   onRunAnalysis?: () => void;
+  onRunSynthesis?: () => void;
+  awaitingSynthesis?: boolean;
   onRemoveSubGroup?: (id: string) => void;
   isLoading?: boolean;
   activeEvidenceSearch?: string | null;
@@ -158,6 +161,7 @@ function StepEntry({
   isLast,
   onClick,
   activeContent,
+  completedVariant = "default",
 }: {
   status: AnalysisStep["status"];
   label: string;
@@ -165,6 +169,7 @@ function StepEntry({
   isLast?: boolean;
   onClick?: () => void;
   activeContent?: React.ReactNode;
+  completedVariant?: "default" | "synthesis";
 }) {
   const isActive = status === "active";
   const isClickable = status === "complete" || status === "active";
@@ -176,7 +181,11 @@ function StepEntry({
       )}
 
       <div className="relative z-10 flex shrink-0">
-        {status === "complete" ? (
+        {status === "complete" && completedVariant === "synthesis" ? (
+          <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-indigo-500">
+            <FileText size={12} className="text-white" />
+          </div>
+        ) : status === "complete" ? (
           <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[var(--color-accent)]">
             <Check size={12} className="text-white" />
           </div>
@@ -242,6 +251,8 @@ function SubGroupCard({
   subGroup: SubGroup;
   onRemove?: (id: string) => void;
 }) {
+  const isCategorical = subGroup.categorical && subGroup.category_pattern;
+
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3">
       <div className="flex items-start justify-between gap-2">
@@ -258,6 +269,11 @@ function SubGroupCard({
           </button>
         )}
       </div>
+      {isCategorical && (
+        <span className="mt-1 inline-block rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
+          Category-level pattern
+        </span>
+      )}
       <div className="mt-1.5 flex flex-wrap gap-1">
         {subGroup.modifiers.map((mod, i) => (
           <span
@@ -270,6 +286,14 @@ function SubGroupCard({
           </span>
         ))}
       </div>
+      {isCategorical && subGroup.category_pattern && (
+        <div className="mt-1.5 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+          <span className="font-medium">Covers:</span>{" "}
+          {subGroup.category_pattern.affected_modifiers
+            .map((m) => m.name)
+            .join(", ")}
+        </div>
+      )}
       {subGroup.rationale && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
           {subGroup.rationale}
@@ -353,6 +377,8 @@ export function SpecificationSidebar({
   confirmedSubGroups,
   analysisProgress,
   onRunAnalysis,
+  onRunSynthesis,
+  awaitingSynthesis,
   onRemoveSubGroup,
   isLoading,
   activeEvidenceSearch,
@@ -366,10 +392,9 @@ export function SpecificationSidebar({
   const steps = analysisProgress?.steps ?? [];
 
   const scanStep = steps.find((s) => s.step === "scan");
-  const analysisSteps = steps.filter(
-    (s) => s.step === "subgroup" || s.step === "synthesis",
-  );
-  const hasAnalysisStarted = analysisSteps.some(
+  const subgroupAnalysisSteps = steps.filter((s) => s.step === "subgroup");
+  const synthesisStep = steps.find((s) => s.step === "synthesis") ?? null;
+  const hasAnalysisStarted = subgroupAnalysisSteps.some(
     (s) => s.status === "active" || s.status === "complete" || s.status === "error",
   );
   const isComplete = analysisProgress?.isComplete ?? false;
@@ -416,7 +441,7 @@ export function SpecificationSidebar({
                       ? scanSummary
                       : null
                 }
-                isLast={!hasSubGroups && analysisSteps.length === 0}
+                isLast={!hasSubGroups && subgroupAnalysisSteps.length === 0 && !synthesisStep}
                 onClick={() => onSelectSection?.("scan")}
               />
             )}
@@ -431,18 +456,13 @@ export function SpecificationSidebar({
             />
           )}
 
-          {analysisSteps.length > 0 && (
+          {subgroupAnalysisSteps.length > 0 && (
             <div className="p-4">
-              {analysisSteps.map((step, i) => {
-                const isLast = i === analysisSteps.length - 1;
+              {subgroupAnalysisSteps.map((step, i) => {
+                const isLast = i === subgroupAnalysisSteps.length - 1;
                 const label =
-                  step.step === "synthesis"
-                    ? "Equity synthesis and provocations"
-                    : step.name || `Sub-group ${(step.index ?? 0) + 1}`;
-                const sectionId =
-                  step.step === "synthesis"
-                    ? "synthesis"
-                    : `sg_${step.index ?? 0}`;
+                  step.name || `Sub-group ${(step.index ?? 0) + 1}`;
+                const sectionId = `sg_${step.index ?? 0}`;
                 const isActive = step.status === "active";
 
                 let activeContent: React.ReactNode = null;
@@ -470,7 +490,7 @@ export function SpecificationSidebar({
                     key={`${step.step}-${step.index ?? "s"}`}
                     status={step.status}
                     label={label}
-                    isLast={isLast}
+                    isLast={isLast && !synthesisStep}
                     onClick={() => onSelectSection?.(sectionId)}
                     activeContent={activeContent}
                   />
@@ -479,7 +499,36 @@ export function SpecificationSidebar({
             </div>
           )}
 
-          {hasAnalysisStarted && !isComplete && (
+          {/* Synthesis section — visually separated from sub-group steps */}
+          {synthesisStep && (
+            <>
+              <div className="mx-4 border-t border-[var(--color-border)]" />
+              <div className="px-4 pt-3">
+                <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Equity Assessment
+                </h3>
+                {awaitingSynthesis && (
+                  <button
+                    onClick={onRunSynthesis}
+                    disabled={isLoading}
+                    className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:opacity-50"
+                  >
+                    <FileText size={16} />
+                    Run synthesis
+                  </button>
+                )}
+                <StepEntry
+                  status={synthesisStep.status}
+                  label="Equity synthesis and provocations"
+                  isLast
+                  onClick={() => onSelectSection?.("synthesis")}
+                  completedVariant="synthesis"
+                />
+              </div>
+            </>
+          )}
+
+          {hasAnalysisStarted && !isComplete && !awaitingSynthesis && (
             <div className="px-4 pb-3 pt-1">
               <p className="text-[11px] text-[var(--color-text-muted)]">
                 <Clock size={10} className="mr-1 inline" />

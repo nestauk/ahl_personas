@@ -101,12 +101,28 @@ Use the policy-modifier heuristic mapping below as a **floor** — always check 
 
 Present the scan results as a markdown table with columns: Modifier | Rating | Reasoning (one sentence).
 
+### Categorical pattern detection
+
+Before composing sub-groups, examine **every** category for **categorical patterns**: where multiple modifiers within the same category share the same relevance rating for the same structural reason (same mechanism, same direction of impact, same root cause). This pattern can occur in any category — geography, financial context, time/capacity, ethnicity, or any other.
+
+**The decision rule:**
+- If modifiers in the same category have the same rating but for **genuinely different reasons** (different mechanisms, different points of interaction with the policy), they should be analysed as **separate specific sub-groups**. Example: "Urban deprived" and "Rural deprived" both rated HIGH for a price cap, but urban faces convenience store margin pressure while rural faces sparse retail — different mechanisms, different analyses.
+- If modifiers in the same category have the same rating for **the same structural reason** (same mechanism, same cause, only the surface details differ), propose a **category-level sub-group** instead of picking one modifier. Example: multiple dietary traditions all rated MODERATE because the basket excludes culturally specific staples — same mechanism, different specific items.
+
+When you detect a categorical pattern:
+- Note it explicitly in the relevance assessment: "Categorical pattern in [category]: [N] modifiers share [rating] because [shared reason]"
+- In Part 2, propose a category-level sub-group using a descriptive category name (e.g. "All financially constrained households", "Non-mainstream dietary traditions", "Rural populations", "Capacity-constrained households")
+- List all the affected modifiers within the categorical sub-group
+
+Apply this check to every category, not just ethnicity or any single category.
+
 ### Part 2 — Sub-group composition
 
 Combine the HIGH-rated modifiers into **4–6 sub-groups** that capture the range of likely differential impacts. Each sub-group is a combination of 2–4 modifiers.
 
 Rules:
 - Include at least one sub-group likely to **benefit** from the policy and at least one likely to be **disadvantaged**
+- When a categorical pattern has been detected, use the category-level sub-group rather than picking one specific modifier from the category
 - Prioritise the analysts' priority modifiers when they are rated HIGH
 - Each sub-group should represent a distinct combination of material constraints — avoid near-duplicates
 - Briefly explain why each sub-group was selected and what differential impact you expect
@@ -209,6 +225,27 @@ The JSON must follow this exact structure:
       ],
       "rationale": "Brief explanation of why this sub-group was selected...",
       "relevance_drivers": ["HIGH: Financially strained", "HIGH: Urban deprived", "HIGH: Family with children"]
+    },
+    {
+      "id": "sg_2",
+      "name": "Non-mainstream dietary traditions + Financially strained + Urban deprived",
+      "categorical": true,
+      "category_pattern": {
+        "category": "ethnicity",
+        "affected_modifiers": [
+          {"name": "South Asian dietary traditions", "features": "Specific staple ingredients (ghee, spices, lentils, specific flours), religious dietary requirements (halal, vegetarianism), multi-generational household food dynamics"},
+          {"name": "Black Caribbean and African dietary traditions", "features": "Specific staple ingredients (plantain, yam, specific seasonings), limited mainstream retail availability of key ingredients"},
+          {"name": "Eastern European dietary traditions", "features": "Specific staple foods, reliance on specialist retailers, language barriers"}
+        ],
+        "shared_reasoning": "The essential basket may exclude culturally specific staples, reducing benefit for any non-mainstream dietary tradition"
+      },
+      "modifiers": [
+        {"category": "ethnicity", "value": "Non-mainstream dietary traditions (categorical)"},
+        {"category": "household_financial", "value": "Financially strained"},
+        {"category": "geography", "value": "Urban deprived"}
+      ],
+      "rationale": "All non-mainstream dietary traditions face the same structural issue: if the capped basket excludes culturally specific staples, these households capture fewer savings. Analysing at the category level avoids biasing findings toward one tradition.",
+      "relevance_drivers": ["MODERATE: South Asian dietary traditions", "MODERATE: Black Caribbean and African dietary traditions", "MODERATE: Eastern European dietary traditions"]
     }
   ],
   "relevance_scan": {
@@ -226,6 +263,7 @@ Rules for the JSON:
 - `value` must match the exact modifier name from the personas framework tables above
 - `relevance_scan` should include every modifier from every category with its rating
 - Always emit all sub-groups, even if some are tentative
+- For categorical sub-groups: set `"categorical": true` and include a `category_pattern` object with `category`, `affected_modifiers` (each with `name` and `features` from the personas framework tables), and `shared_reasoning`. The `modifiers` array should use a descriptive category-level value (e.g. "Non-mainstream dietary traditions (categorical)"). Non-categorical sub-groups should omit `categorical` and `category_pattern`.
 
 ## Tone
 

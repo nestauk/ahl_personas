@@ -742,3 +742,95 @@ The subgroup and synthesis prompts consume `{{POLICY_SPECIFICATION}}` as opaque 
 - No persistence of analyses across sessions
 - No authentication or user management
 - No tests
+
+---
+
+## 2026-05-22 — Categorical Analysis Patterns + Synthesis Checkpoint
+
+### What was done
+
+Two related features that improve the quality and analyst control of the analysis flow:
+
+1. **Categorical pattern detection** — the scan now detects when multiple modifiers within the same category share the same relevance rating for the same structural reason, and proposes category-level sub-groups instead of picking one specific modifier. The per-sub-group analysis prompt and backend formatting handle these categorical sub-groups differently, drawing examples from multiple modifiers rather than deep-diving into one.
+
+2. **Checkpoint before synthesis** — the analysis chain now pauses after all per-sub-group analyses complete, re-enables chat, and shows a "Run synthesis" button. The analyst reviews the sub-group analyses before triggering the equity synthesis as a separate request. The synthesis step has distinct visual treatment in both the sidebar (indigo icon, separator, "EQUITY ASSESSMENT" label) and reading panel (indigo banner header).
+
+### Design decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Categorical pattern scope | Applied at the scan prompt level, not the orchestrator | The decision about whether modifiers share a mechanism is a reasoning task — only the LLM has the context to judge this. The orchestrator just formats whatever the scan produces. |
+| Feature source for affected modifiers | LLM includes features in JSON output (Option A) | Avoids duplicating the 36-modifier personas framework as a Python constant. The scan LLM already has the full framework in context. |
+| `awaitingSynthesis` state | Derived via `useMemo` from `analysisProgress` | Avoidable state — computed from whether all sub-group steps are complete but synthesis is still pending. No new cache field needed. |
+| Synthesis trigger | Per-request `body` on `append()` call | The `useChat` hook's `body` is evaluated at render time, so a ref-based approach wouldn't work. The Vercel AI SDK's `append(message, { body })` merges per-request body fields. |
+| Synthesis input data | Frontend sends accumulated `analysisSections` content | Avoids server-side session state or fragile history reconstruction. The ~50-60KB payload is fine for a POST body. |
+| Checkpoint message destination | `("text", ...)` yield, not `("analysis_content", ...)` | The chain's inner loop re-tags sub-group output for the reading panel, but the checkpoint summary must flow to the chat as a `0:` text line. |
+| Additional sub-groups at checkpoint | Deferred | The analyst can currently only proceed to synthesis or start a new session. Adding sub-groups at the checkpoint is a future enhancement. |
+
+### Categorical pattern — how it works
+
+**Scan prompt** (`analysis_scan.md`): New "Categorical pattern detection" section between Part 1 (modifier scan) and Part 2 (sub-group composition). Instructs the LLM to:
+- Check every category for modifiers sharing the same rating for the same structural reason
+- Apply the decision rule: same mechanism → categorical sub-group, different mechanism → separate specific sub-groups
+- Produce a `category_pattern` object in the JSON with `affected_modifiers` (each with `name` and `features`) and `shared_reasoning`
+
+**Per-sub-group prompt** (`analysis_subgroup.md`): New "Categorical pattern guidance" section. When the sub-group description includes a categorical pattern, the LLM examines the shared mechanism, draws examples from multiple modifiers, notes degree differences, and frames findings at the category level.
+
+**Backend** (`orchestrator.py`): `_format_subgroup_modifiers()` detects the `categorical` flag and `category_pattern` on the sub-group dict. For categorical sub-groups, outputs a structured block listing all affected modifiers with their features and the shared mechanism, with an instruction to analyse the shared pattern. Non-categorical modifiers in the same sub-group are listed separately below.
+
+**Frontend** (`types.ts`): `SubGroup` interface extended with optional `categorical?: boolean` and `category_pattern?: CategoryPattern`. `CategoryPattern` contains `category`, `affected_modifiers: AffectedModifier[]` (each with `name` and `features`), and `shared_reasoning`.
+
+**Frontend** (`SpecificationSidebar.tsx`): `SubGroupCard` shows an indigo "Category-level pattern" badge and lists affected modifier names when `categorical` is true.
+
+### Synthesis checkpoint — how it works
+
+**Backend** (`orchestrator.py`): `stream_analysis_chain()` no longer calls `_stream_synthesis()`. After all sub-group analyses:
+- Emits `("data", {"type": "analysis_checkpoint", "subgroup_count": N})`
+- Emits `("data", {"type": "stage_transition", "stage": "chatting"})` — re-enables chat
+- Yields `("text", ...)` checkpoint summary to the chat (not the reading panel)
+
+New `stream_synthesis_only()` function handles synthesis as a standalone call, receiving analysis texts from the frontend.
+
+`stream_response()` routes `run_synthesis=True` requests to `stream_synthesis_only()` before checking other stage-based routing.
+
+**Backend** (`models/chat.py`): `ChatRequest` extended with `run_synthesis: bool = False` and `analysis_texts: list[dict[str, str]] | None = None`.
+
+**Frontend** (`ChatContainer.tsx`):
+- `awaitingSynthesis` computed via `useMemo` from `analysisProgress` steps
+- `handleRunSynthesis` collects all analysis section texts (excluding scan and policy summary), sends them via `append(message, { body: { run_synthesis: true, analysis_texts: texts } })`
+- `analysis_checkpoint` event sets a ref flag so the subsequent `stage_transition` to chatting doesn't insert the "analysis complete" message (which is only for the final synthesis completion)
+- `isComplete` in the progress reducer now requires the synthesis step to be complete, not just all sub-group steps
+
+**Frontend** (`SpecificationSidebar.tsx`):
+- Sub-group analysis steps and synthesis step rendered separately
+- Horizontal separator (`border-t`) between the last sub-group step and the synthesis section
+- "EQUITY ASSESSMENT" small-caps label above the synthesis step
+- "Run synthesis" button (indigo) shown when `awaitingSynthesis` is true
+- Synthesis step uses `FileText` icon in indigo circle instead of the standard green checkmark
+
+**Frontend** (`AnalysisView.tsx`): Synthesis section gets a distinct header — indigo background with "Equity Assessment and Provocations" heading and a descriptive subtitle.
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/prompts/analysis_scan.md` — categorical pattern detection section + enriched JSON schema with `categorical` and `category_pattern` fields
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md` — categorical pattern guidance section
+- `src/food_policy_impact_tool/llm/orchestrator.py` — `_format_subgroup_modifiers()` categorical handling, `stream_analysis_chain()` checkpoint split, new `stream_synthesis_only()`, `stream_response()` synthesis routing
+- `src/food_policy_impact_tool/models/chat.py` — `run_synthesis` and `analysis_texts` fields on `ChatRequest`
+- `src/food_policy_impact_tool/api/routes/chat.py` — passes new fields through to `stream_response()`
+
+**Frontend:**
+- `frontend/src/lib/types.ts` — `AffectedModifier`, `CategoryPattern`, `AnalysisCheckpointEvent` interfaces; `SubGroup` extended with optional categorical fields
+- `frontend/src/components/chat/ChatContainer.tsx` — `awaitingSynthesis` derived state, `handleRunSynthesis` callback, checkpoint event handling, `isComplete` logic updated
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — `SubGroupCard` categorical badge, synthesis visual distinction (separator, label, button, icon), new props
+- `frontend/src/components/analysis/AnalysisView.tsx` — distinct indigo header for synthesis section
+
+### What has NOT been implemented yet
+
+- No additional sub-groups at the synthesis checkpoint (deferred)
+- No deliberation layer beyond what's in the provocations section
+- No multi-turn analysis refinement
+- No export of analysis outputs (PDF, Word)
+- No persistence of analyses across sessions
+- No authentication or user management
+- No tests

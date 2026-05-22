@@ -35,3 +35,5 @@ class ChatRequest(BaseModel):
     stage: ConversationStage = "specifying"
     spec_state: dict[str, Any] | None = None
     confirmed_subgroups: list[dict[str, Any]] | None = None
+    run_synthesis: bool = False
+    analysis_texts: list[dict[str, str]] | None = None

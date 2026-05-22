@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSONValue } from "ai";
 import { ChatInput } from "./ChatInput";
 import { MessageList } from "./MessageList";
@@ -116,6 +116,49 @@ export function ChatContainer() {
   streamingSectionRef.current = streamingSection;
 
   const lastStreamedSectionRef = useRef<string | null>(null);
+  const checkpointReachedRef = useRef(false);
+
+  const pendingDeltasRef = useRef<Map<string, string>>(new Map());
+  const flushRafRef = useRef<number | null>(null);
+
+  const flushPendingDeltas = useCallback(() => {
+    flushRafRef.current = null;
+    const pending = pendingDeltasRef.current;
+    if (pending.size === 0) return;
+
+    const batch = new Map(pending);
+    pending.clear();
+
+    setAnalysisSections((prev) => {
+      const next = new Map(prev);
+      batch.forEach((delta, sectionId) => {
+        const existing = next.get(sectionId);
+        if (existing) {
+          next.set(sectionId, {
+            ...existing,
+            content: existing.content + delta,
+          });
+        } else {
+          const subgroups = confirmedSubGroupsRef.current;
+          let name = sectionId;
+          if (sectionId === "scan") {
+            name = "Population Relevance Assessment";
+          } else if (sectionId === "synthesis") {
+            name = "Equity synthesis and provocations";
+          } else if (sectionId.startsWith("sg_") && subgroups) {
+            const idx = parseInt(sectionId.slice(3), 10);
+            name = subgroups[idx]?.name || `Sub-group ${idx + 1}`;
+          }
+          next.set(sectionId, { id: sectionId, name, content: delta });
+          if (sectionId === "scan") {
+            setActiveSection("scan");
+            setStreamingSection("scan");
+          }
+        }
+      });
+      return next;
+    });
+  }, []);
 
   const lastProcessedDataIdx = useRef(-1);
 
@@ -168,33 +211,12 @@ export function ChatContainer() {
         const sectionId = item.section as string;
         const delta = item.delta as string;
 
-        setAnalysisSections((prev) => {
-          const next = new Map(prev);
-          const existing = next.get(sectionId);
-          if (existing) {
-            next.set(sectionId, {
-              ...existing,
-              content: existing.content + delta,
-            });
-          } else {
-            const subgroups = confirmedSubGroupsRef.current;
-            let name = sectionId;
-            if (sectionId === "scan") {
-              name = "Population Relevance Assessment";
-            } else if (sectionId === "synthesis") {
-              name = "Equity synthesis and provocations";
-            } else if (sectionId.startsWith("sg_") && subgroups) {
-              const idx = parseInt(sectionId.slice(3), 10);
-              name = subgroups[idx]?.name || `Sub-group ${idx + 1}`;
-            }
-            next.set(sectionId, { id: sectionId, name, content: delta });
-            if (sectionId === "scan") {
-              setActiveSection("scan");
-              setStreamingSection("scan");
-            }
-          }
-          return next;
-        });
+        const pending = pendingDeltasRef.current;
+        pending.set(sectionId, (pending.get(sectionId) ?? "") + delta);
+
+        if (flushRafRef.current === null) {
+          flushRafRef.current = requestAnimationFrame(flushPendingDeltas);
+        }
       }
 
       if (eventType === "analysis_step") {
@@ -232,6 +254,7 @@ export function ChatContainer() {
         }
 
         if (status === "complete" || status === "error") {
+          flushPendingDeltas();
           lastStreamedSectionRef.current = streamingSectionRef.current;
           streamingSectionRef.current = null;
           setStreamingSection(null);
@@ -253,8 +276,11 @@ export function ChatContainer() {
             steps.push({ step, index, name, status });
           }
 
+          const synthStep = steps.find((s) => s.step === "synthesis");
           const isComplete =
             steps.length > 0 &&
+            synthStep !== undefined &&
+            (synthStep.status === "complete" || synthStep.status === "error") &&
             steps.every(
               (s) => s.status === "complete" || s.status === "error",
             );
@@ -272,13 +298,17 @@ export function ChatContainer() {
         setEvidenceSearchCount((prev) => prev + 1);
       }
 
+      if (eventType === "analysis_checkpoint") {
+        checkpointReachedRef.current = true;
+      }
+
       if (eventType === "stage_transition") {
         const newStage = item.stage as ConversationStage;
         setStage(newStage);
         setActiveEvidenceSearch(null);
         setStreamingSection(null);
 
-        if (newStage === "chatting") {
+        if (newStage === "chatting" && !checkpointReachedRef.current) {
           const sectionCount = analysisSections.size;
           setMessages((prev) => [
             ...prev,
@@ -289,10 +319,11 @@ export function ChatContainer() {
             },
           ]);
         }
+        checkpointReachedRef.current = false;
       }
     }
     lastProcessedDataIdx.current = data.length - 1;
-  }, [data, setMessages, analysisSections.size]);
+  }, [data, setMessages, analysisSections.size, flushPendingDeltas]);
 
   useEffect(() => {
     if (!initialCache) return;
@@ -364,6 +395,12 @@ export function ChatContainer() {
     setActiveSection(null);
     setStreamingSection(null);
     lastProcessedDataIdx.current = -1;
+    checkpointReachedRef.current = false;
+    pendingDeltasRef.current.clear();
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
   }, [setMessages, setData]);
 
   const handleProceed = useCallback(() => {
@@ -440,6 +477,49 @@ export function ChatContainer() {
     });
   }, [append]);
 
+  const awaitingSynthesis = useMemo(() => {
+    const steps = analysisProgress.steps;
+    const subgroupSteps = steps.filter((s) => s.step === "subgroup");
+    const synthesisStep = steps.find((s) => s.step === "synthesis");
+    return (
+      subgroupSteps.length > 0 &&
+      subgroupSteps.every(
+        (s) => s.status === "complete" || s.status === "error",
+      ) &&
+      synthesisStep?.status === "pending"
+    );
+  }, [analysisProgress]);
+
+  const analysisSectionsRef = useRef(analysisSections);
+  analysisSectionsRef.current = analysisSections;
+
+  const handleRunSynthesis = useCallback(() => {
+    const sections = analysisSectionsRef.current;
+    const texts: { name: string; text: string }[] = [];
+    sections.forEach((section) => {
+      if (section.id !== "scan" && section.id !== "policy_summary") {
+        texts.push({ name: section.name, text: section.content });
+      }
+    });
+    if (texts.length === 0) return;
+
+    setStage("analysing");
+
+    append(
+      {
+        role: "user",
+        content: "Run the equity synthesis and provocations.",
+      },
+      {
+        body: {
+          stage: "analysing",
+          run_synthesis: true,
+          analysis_texts: texts,
+        },
+      },
+    );
+  }, [append]);
+
   const handleRemoveSubGroup = useCallback((subGroupId: string) => {
     setConfirmedSubGroups((prev) => {
       if (!prev) return prev;
@@ -483,7 +563,8 @@ export function ChatContainer() {
       ? "w-[65%]"
       : "w-[60%]";
 
-  const chatDisabled = stage === "analysing" && (isLoading || analysisRunning);
+  const chatDisabled =
+    stage === "analysing" && (isLoading || analysisRunning) && !awaitingSynthesis;
 
   const policySummary = specMeta.spec.policy_summary
     ? {
@@ -507,6 +588,8 @@ export function ChatContainer() {
           confirmedSubGroups={confirmedSubGroups}
           analysisProgress={analysisProgress}
           onRunAnalysis={handleRunAnalysis}
+          onRunSynthesis={handleRunSynthesis}
+          awaitingSynthesis={awaitingSynthesis}
           onRemoveSubGroup={handleRemoveSubGroup}
           isLoading={isLoading}
           activeEvidenceSearch={activeEvidenceSearch}

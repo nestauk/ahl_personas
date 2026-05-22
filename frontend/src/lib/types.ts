@@ -19,9 +19,22 @@ export interface SubGroupModifier {
   value: string;
 }
 
+export interface AffectedModifier {
+  name: string;
+  features: string;
+}
+
+export interface CategoryPattern {
+  category: string;
+  affected_modifiers: AffectedModifier[];
+  shared_reasoning: string;
+}
+
 export interface SubGroup {
   id: string;
   name: string;
+  categorical?: boolean;
+  category_pattern?: CategoryPattern;
   modifiers: SubGroupModifier[];
   rationale: string;
   relevance_drivers: string[];
@@ -84,12 +97,18 @@ export interface AnalysisSection {
   content: string;
 }
 
+export interface AnalysisCheckpointEvent {
+  type: "analysis_checkpoint";
+  subgroup_count: number;
+}
+
 export type AnalysisDataEvent =
   | AnalysisStepEvent
   | EvidenceSearchEvent
   | StageTransitionEvent
   | ProposedSubGroupsEvent
-  | AnalysisContentEvent;
+  | AnalysisContentEvent
+  | AnalysisCheckpointEvent;
 
 // --- Taxonomy labels (for sidebar pill display) ---
 

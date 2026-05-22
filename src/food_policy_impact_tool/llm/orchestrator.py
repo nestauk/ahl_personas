@@ -264,12 +264,44 @@ def _build_messages(
 
 
 def _format_subgroup_modifiers(sub_group: dict[str, Any]) -> str:
-    """Format a sub-group's modifiers and features for prompt injection."""
+    """Format a sub-group's modifiers and features for prompt injection.
+
+    For categorical sub-groups (where multiple modifiers within a category share
+    the same mechanism), outputs a categorical block with all affected modifiers
+    and their features. For standard sub-groups, lists each modifier with its category.
+    """
     lines: list[str] = []
-    for mod in sub_group.get("modifiers", []):
-        category = mod.get("category", "unknown")
-        value = mod.get("value", "unknown")
-        lines.append(f"- **{value}** (category: {category})")
+    cat_pattern = sub_group.get("category_pattern") if sub_group.get("categorical") else None
+
+    if cat_pattern:
+        category_label = cat_pattern.get("category", "Unknown category").replace("_", " ").title()
+        lines.append(f"**Categorical pattern: {category_label}**")
+        lines.append("This sub-group represents a shared structural pattern across multiple modifiers:")
+        for mod in cat_pattern.get("affected_modifiers", []):
+            name = mod.get("name", "Unknown")
+            features = mod.get("features", "")
+            lines.append(f"- {name}: {features}")
+        shared = cat_pattern.get("shared_reasoning", "")
+        if shared:
+            lines.append(f"\nShared mechanism: {shared}")
+        lines.append("\nAnalyse the shared pattern with examples from across these modifiers, not a deep-dive into one.")
+
+        non_categorical_mods = [
+            m for m in sub_group.get("modifiers", [])
+            if m.get("category") != cat_pattern.get("category")
+        ]
+        if non_categorical_mods:
+            lines.append("\nAdditional modifiers:")
+            for mod in non_categorical_mods:
+                category = mod.get("category", "unknown")
+                value = mod.get("value", "unknown")
+                lines.append(f"- **{value}** (category: {category})")
+    else:
+        for mod in sub_group.get("modifiers", []):
+            category = mod.get("category", "unknown")
+            value = mod.get("value", "unknown")
+            lines.append(f"- **{value}** (category: {category})")
+
     if sub_group.get("rationale"):
         lines.append(f"\nSelection rationale: {sub_group['rationale']}")
     return "\n".join(lines)
@@ -548,11 +580,10 @@ async def stream_analysis_chain(
     confirmed_subgroups: list[dict[str, Any]],
     retriever: HybridRetriever,
 ) -> AsyncIterator[tuple[str, Any]]:
-    """Run the full analysis chain: per-sub-group analyses then synthesis.
+    """Run per-sub-group analyses, then pause for analyst review before synthesis.
 
-    Manages the multi-call flow, emitting progress data messages between steps.
-    Each sub-group call is wrapped in error handling so failures don't kill
-    the entire chain.
+    The chain stops after all sub-group analyses and emits a checkpoint event.
+    Synthesis is triggered separately via stream_synthesis_only().
 
     Args:
         messages: Conversation history (used to extract policy specification).
@@ -560,7 +591,7 @@ async def stream_analysis_chain(
         retriever: Evidence retriever for tool calls.
 
     Yields:
-        Tuples of ("text", content) or ("data", event_dict).
+        Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
     """
     settings = get_settings()
     client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -574,7 +605,7 @@ async def stream_analysis_chain(
 
     policy_spec = _extract_policy_spec_from_history(messages)
 
-    sub_group_analyses: list[dict[str, str]] = []
+    completed_count = 0
 
     for i, sg in enumerate(confirmed_subgroups):
         sg_name = sg.get("name", f"Sub-group {i + 1}")
@@ -606,10 +637,7 @@ async def stream_analysis_chain(
 
             sg_elapsed = time.monotonic() - sg_start
             text_len = sum(len(t) for t in analysis_text)
-            sub_group_analyses.append({
-                "name": sg_name,
-                "text": "".join(analysis_text),
-            })
+            completed_count += 1
             logger.info(
                 "[chain] Sub-group %d/%d COMPLETE: '%s' — %d chars in %.1fs",
                 i + 1, n, sg_name, text_len, sg_elapsed,
@@ -639,15 +667,51 @@ async def stream_analysis_chain(
                 "status": "error",
             })
 
+    chain_elapsed = time.monotonic() - chain_start
     logger.info(
-        "[chain] --- Synthesis: %d sub-group analyses available ---",
-        len(sub_group_analyses),
+        "[chain] === SUB-GROUP ANALYSES COMPLETE === "
+        "%d/%d succeeded in %.1fs — pausing for analyst review",
+        completed_count, n, chain_elapsed,
+    )
+
+    yield ("data", {"type": "analysis_checkpoint", "subgroup_count": n})
+    yield ("data", {"type": "stage_transition", "stage": "chatting"})
+    yield ("text", (
+        f"All {n} sub-group analyses are complete. "
+        f"Review the results in the analysis panel, then click "
+        f"**Run synthesis** in the sidebar when you're ready for the equity assessment."
+    ))
+
+
+async def stream_synthesis_only(
+    *,
+    messages: list[ChatMessage],
+    analysis_texts: list[dict[str, str]],
+) -> AsyncIterator[tuple[str, Any]]:
+    """Run the equity synthesis as a standalone call, triggered after the checkpoint.
+
+    Args:
+        messages: Conversation history (used to extract policy specification).
+        analysis_texts: List of dicts with 'name' and 'text' for each sub-group analysis,
+            sent from the frontend's accumulated analysis sections.
+
+    Yields:
+        Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
+    """
+    settings = get_settings()
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+    policy_spec = _extract_policy_spec_from_history(messages)
+
+    logger.info(
+        "[synthesis] === SYNTHESIS START === %d sub-group analyses provided",
+        len(analysis_texts),
     )
     yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "active"})
 
     try:
         synthesis_start = time.monotonic()
-        async for part in _stream_synthesis(client, policy_spec, sub_group_analyses):
+        async for part in _stream_synthesis(client, policy_spec, analysis_texts):
             if part[0] == "text":
                 yield ("analysis_content", {
                     "section": "synthesis",
@@ -656,12 +720,12 @@ async def stream_analysis_chain(
             else:
                 yield part
         logger.info(
-            "[chain] Synthesis COMPLETE in %.1fs",
+            "[synthesis] COMPLETE in %.1fs",
             time.monotonic() - synthesis_start,
         )
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "complete"})
     except Exception:
-        logger.exception("[chain] Synthesis FAILED")
+        logger.exception("[synthesis] FAILED")
         yield ("analysis_content", {
             "section": "synthesis",
             "delta": (
@@ -671,12 +735,6 @@ async def stream_analysis_chain(
         })
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "error"})
 
-    chain_elapsed = time.monotonic() - chain_start
-    logger.info(
-        "[chain] === ANALYSIS CHAIN COMPLETE === "
-        "%d/%d sub-groups succeeded in %.1fs total",
-        len(sub_group_analyses), n, chain_elapsed,
-    )
     yield ("data", {"type": "stage_transition", "stage": "chatting"})
 
 
@@ -687,6 +745,8 @@ async def stream_response(
     evidence: list[RetrievalResult] | None = None,
     spec_state: dict[str, Any] | None = None,
     confirmed_subgroups: list[dict[str, Any]] | None = None,
+    run_synthesis: bool = False,
+    analysis_texts: list[dict[str, str]] | None = None,
     retriever: HybridRetriever | None = None,
 ) -> AsyncIterator[tuple[str, Any]]:
     """Stream an LLM response, yielding typed parts for the data stream formatter.
@@ -699,6 +759,8 @@ async def stream_response(
         evidence: Retrieved evidence chunks (only used in 'chatting' stage).
         spec_state: Current specification state from the frontend sidebar.
         confirmed_subgroups: Confirmed sub-groups for the analysis chain.
+        run_synthesis: Whether to run the synthesis call (triggered after checkpoint).
+        analysis_texts: Per-sub-group analysis texts for synthesis (sent from frontend).
         retriever: Evidence retriever (required for 'analysing' stage with confirmed sub-groups).
 
     Yields:
@@ -706,6 +768,14 @@ async def stream_response(
     """
     settings = get_settings()
     client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+    if run_synthesis and analysis_texts:
+        async for part in stream_synthesis_only(
+            messages=messages,
+            analysis_texts=analysis_texts,
+        ):
+            yield part
+        return
 
     if stage == "analysing" and confirmed_subgroups:
         async for part in stream_analysis_chain(
