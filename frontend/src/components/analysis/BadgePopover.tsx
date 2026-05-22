@@ -22,6 +22,7 @@ type EvidenceMatchKind = "source" | "quote" | "unmatched";
 interface EvidenceDisplay {
   chunks: RawEvidenceChunk[];
   matchKind: EvidenceMatchKind;
+  matchIndex: number;
   retrievedSourceNames: string[];
   hasRetrievedEvidence: boolean;
 }
@@ -203,6 +204,58 @@ function preferBodyChunks(chunks: RawEvidenceChunk[]): RawEvidenceChunk[] {
   return body.length > 0 ? body : chunks;
 }
 
+/**
+ * Returns the character index (in the original chunk text) where the best
+ * quote probe matches, or -1 if no probe matches. When multiple probes hit,
+ * the longest match wins so we centre on the most specific passage.
+ */
+function scoreChunkByQuote(
+  chunk: RawEvidenceChunk,
+  detail: string,
+): number {
+  const probes = extractQuoteProbes(detail);
+  if (probes.length === 0) return -1;
+
+  const normChunk = normaliseText(chunk.text);
+  let bestIndex = -1;
+  let bestLen = 0;
+
+  for (const probe of probes) {
+    const normProbe = normaliseText(probe);
+    const minLen = Math.min(40, normProbe.length);
+    const snippet = normProbe.slice(0, Math.max(minLen, 40));
+    const normIdx = normChunk.indexOf(snippet);
+    if (normIdx >= 0 && snippet.length > bestLen) {
+      bestLen = snippet.length;
+      const lowerChunk = chunk.text.toLowerCase();
+      const rawMinLen = Math.min(40, probe.length);
+      const rawProbeStart = probe.toLowerCase().slice(0, Math.max(rawMinLen, 40));
+      const rawIdx = lowerChunk.indexOf(rawProbeStart, Math.max(0, normIdx - 50));
+      bestIndex = rawIdx >= 0 ? rawIdx : normIdx;
+    }
+  }
+
+  return bestIndex;
+}
+
+function pickBestChunk(
+  chunks: RawEvidenceChunk[],
+  detail: string,
+): { chunk: RawEvidenceChunk; matchIndex: number } {
+  let bestChunk = chunks[0];
+  let bestIndex = -1;
+
+  for (const chunk of chunks) {
+    const idx = scoreChunkByQuote(chunk, detail);
+    if (idx >= 0 && bestIndex < 0) {
+      bestChunk = chunk;
+      bestIndex = idx;
+    }
+  }
+
+  return { chunk: bestChunk, matchIndex: bestIndex };
+}
+
 function resolveEvidenceDisplay(
   sourceLabel: string,
   detail: string,
@@ -213,9 +266,11 @@ function resolveEvidenceDisplay(
 
   const sourceMatches = preferBodyChunks(findChunksBySourceName(sourceLabel, searches));
   if (sourceMatches.length > 0) {
+    const best = pickBestChunk(sourceMatches, detail);
     return {
-      chunks: sourceMatches.slice(0, 2),
+      chunks: [best.chunk],
       matchKind: "source",
+      matchIndex: best.matchIndex,
       retrievedSourceNames,
       hasRetrievedEvidence,
     };
@@ -223,27 +278,82 @@ function resolveEvidenceDisplay(
 
   const quoteMatches = preferBodyChunks(findChunksByQuote(detail, searches));
   if (quoteMatches.length > 0) {
+    const best = pickBestChunk(quoteMatches, detail);
     return {
-      chunks: quoteMatches.slice(0, 2),
+      chunks: [best.chunk],
       matchKind: "quote",
+      matchIndex: best.matchIndex,
+      retrievedSourceNames,
+      hasRetrievedEvidence,
+    };
+  }
+
+  const fallbackCandidates = preferBodyChunks(collectAllChunks(searches));
+  if (fallbackCandidates.length > 0) {
+    const best = pickBestChunk(fallbackCandidates, detail);
+    return {
+      chunks: [best.chunk],
+      matchKind: "unmatched",
+      matchIndex: best.matchIndex,
       retrievedSourceNames,
       hasRetrievedEvidence,
     };
   }
 
   return {
-    chunks: preferBodyChunks(collectAllChunks(searches)).slice(0, 2),
+    chunks: [],
     matchKind: "unmatched",
+    matchIndex: -1,
     retrievedSourceNames,
     hasRetrievedEvidence,
   };
 }
 
-function ChunkDisplay({ chunk }: { chunk: RawEvidenceChunk }) {
+const DISPLAY_WINDOW = 400;
+
+function extractDisplayWindow(text: string, matchIndex: number): string {
+  if (text.length <= DISPLAY_WINDOW) return text;
+
+  if (matchIndex < 0) {
+    return text.slice(0, DISPLAY_WINDOW);
+  }
+
+  const half = Math.floor(DISPLAY_WINDOW / 2);
+  let start = Math.max(0, matchIndex - half);
+  let end = Math.min(text.length, start + DISPLAY_WINDOW);
+
+  if (end - start < DISPLAY_WINDOW) {
+    start = Math.max(0, end - DISPLAY_WINDOW);
+  }
+
+  // Snap to nearest word boundaries to avoid mid-word cuts
+  if (start > 0) {
+    const nextSpace = text.indexOf(" ", start);
+    if (nextSpace >= 0 && nextSpace - start < 30) start = nextSpace + 1;
+  }
+  if (end < text.length) {
+    const prevSpace = text.lastIndexOf(" ", end);
+    if (prevSpace > start && end - prevSpace < 30) end = prevSpace;
+  }
+
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < text.length ? "…" : "";
+  return prefix + text.slice(start, end) + suffix;
+}
+
+function ChunkDisplay({
+  chunk,
+  matchIndex = -1,
+}: {
+  chunk: RawEvidenceChunk;
+  matchIndex?: number;
+}) {
+  const displayText = extractDisplayWindow(chunk.text, matchIndex);
+
   return (
     <div>
       <blockquote className="border-l-2 border-[var(--color-border)] pl-2 text-[11px] italic leading-relaxed text-[var(--color-text)]">
-        &ldquo;{chunk.text.length > 400 ? chunk.text.slice(0, 400) + "…" : chunk.text}&rdquo;
+        &ldquo;{displayText}&rdquo;
       </blockquote>
       <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
         {chunk.page_number != null && `p.${chunk.page_number} · `}
@@ -294,7 +404,11 @@ function RawEvidenceSection({ display }: { display: EvidenceDisplay }) {
       {display.chunks.length > 0 && (
         <div className="space-y-2">
           {display.chunks.map((chunk, i) => (
-            <ChunkDisplay key={`${chunk.source_name}-${i}`} chunk={chunk} />
+            <ChunkDisplay
+              key={`${chunk.source_name}-${i}`}
+              chunk={chunk}
+              matchIndex={display.matchIndex}
+            />
           ))}
         </div>
       )}

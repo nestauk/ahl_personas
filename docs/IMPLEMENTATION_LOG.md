@@ -1380,3 +1380,25 @@ The scan prompt previously showed `sg_1`, `sg_2` as IDs in the JSON example with
 ### Files deleted
 
 - `frontend/src/components/analysis/ScanSkeleton.tsx` — replaced by generalised `ArtifactSkeleton.tsx`
+
+---
+
+## 2026-05-22 — Evidence popover: single best chunk with quote-centred display
+
+### Problem
+
+When a user clicked an evidence badge in a sub-population analysis artefact, the popover showed two chunk excerpts under "Evidence from tool retrieval". Each excerpt was truncated to the first 400 characters of the chunk, but chunks can be up to 3000 characters. The LLM's cited quote was often buried deeper in the chunk, so the displayed text didn't contain the passage the user was trying to verify. Showing two chunks was also confusing for non-technical users unfamiliar with the concept of text chunking.
+
+### What was done
+
+Changed the evidence badge popover to show a **single, best-matched chunk** with the display window **centred on the quoted passage**.
+
+| Change | Detail |
+|--------|--------|
+| Single chunk display | `resolveEvidenceDisplay` now returns exactly one chunk (via `pickBestChunk`) instead of `.slice(0, 2)` |
+| Quote-aware chunk selection | `scoreChunkByQuote` extracts quote probes from the badge detail, searches every candidate chunk for the quoted text, and returns the character index of the match. `pickBestChunk` iterates all candidates and selects the first chunk containing the quote. Falls back to the first source-matched chunk if no quote match is found. |
+| Centred display window | `extractDisplayWindow` shows a ~400-character window centred on the match index, snapping to word boundaries. Ellipsis is prepended/appended when truncated on either side. When no match is found, falls back to showing from the start (identical to previous behaviour). |
+
+### Files modified
+
+- `frontend/src/components/analysis/BadgePopover.tsx` — added `scoreChunkByQuote`, `pickBestChunk`, `extractDisplayWindow`; modified `EvidenceDisplay` interface (added `matchIndex`), `resolveEvidenceDisplay` (single chunk via `pickBestChunk`), `ChunkDisplay` (accepts `matchIndex`, uses `extractDisplayWindow`), `RawEvidenceSection` (passes `matchIndex` through)
