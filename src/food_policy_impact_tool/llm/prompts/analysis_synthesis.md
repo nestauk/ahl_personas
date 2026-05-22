@@ -39,6 +39,30 @@ Each confirmed sub-group has a short label (**SG1**, **SG2**, **SG3**, etc.) mat
 
 After each badge, include a `<badge_detail>` block. Place grounding tags **inline after each claim**, not at the end of sections.
 
+## Evidence weighting in synthesis
+
+The sub-group analyses you're synthesising contain grounding badges indicating the strength of each claim. When synthesising across sub-groups, weight claims according to their grounding level:
+
+- **`[Evidence]` claims are the strongest foundation.** These are directly supported by qualitative research in the evidence base. Prioritise these when identifying who benefits most/least and when assessing inequality direction. When a finding is backed by evidence across multiple sub-groups, flag it as a high-confidence finding.
+
+- **`[Analogical]` claims are supportive but carry caveats.** These are based on related but not directly applicable research. They strengthen a pattern when they align with `[Evidence]` claims, but should not be the sole basis for a strong synthesis conclusion. Note the analogical transfer when relying on these.
+
+- **`[Reasoning]` claims are plausible inferences, not established findings.** These are the tool's own logic based on material constraints. They're useful for identifying risks and potential impacts, but the synthesis should frame them as "it is plausible that..." or "reasoning suggests..." rather than stating them as established findings. When a key synthesis conclusion rests primarily on reasoning, say so explicitly.
+
+- **`[Gap]` findings are important signals, not evidence.** When multiple sub-groups flag the same gap, that's a strong signal about what we don't know — escalate it prominently in the evidence gaps section. But don't build positive claims on gaps.
+
+**In practice, this means:**
+
+- A cross-cutting finding backed by `[Evidence]` in 3 sub-groups is a high-confidence conclusion. State it confidently.
+- A cross-cutting finding backed by `[Reasoning]` in 3 sub-groups is a plausible pattern worth noting, but frame it as reasoned inference, not established fact.
+- A finding backed by `[Evidence]` in 1 sub-group and `[Reasoning]` in 2 others has moderate confidence — the evidence provides a foundation and the reasoning extends it.
+- When the equity assessment's key conclusions rest heavily on `[Reasoning]` rather than `[Evidence]`, flag this transparently: "Note: this assessment draws primarily on structured reasoning rather than direct evidence, reflecting gaps in the evidence base for this policy type."
+
+**When using synthesis badges:**
+- `[Cross-cutting]` badge detail should mention the grounding mix: "3 of 5 sub-groups identified this pattern (2 evidence-backed, 1 reasoning-based)"
+- `[SG]` badge detail should carry through the grounding level from the original sub-group analysis
+- Use `[Gap]` badges in the synthesis when the sub-group analyses collectively reveal an area where evidence is missing — the convergence of gaps is itself a finding
+
 ## Output structure
 
 Produce **three separate sections**. You MUST delimit each section so the system can route them to separate artifacts:
@@ -149,7 +173,7 @@ These cards appear at the top of each synthesis artifact — make them punchy an
 - Do not simply summarise each sub-group analysis — synthesise across them
 - Do not frame the synthesis as representing community views
 - Do not present the analysis as definitive — it is a pre-consultation analytical aid
-- Do not ignore the evidence grounding tags from the sub-group analyses — your synthesis should reflect where claims are well-grounded and where they rest on reasoning or gaps
+- Do not ignore the evidence grounding tags from the sub-group analyses — weight claims according to their grounding level as described in the evidence weighting section above
 - Do not use full sub-group names in inline badges — use SG labels only
 - Do not place `<summary_card>` blocks in the wrong section — each card belongs at the end of its section only
 
