@@ -78,20 +78,24 @@ If no categorical pattern is indicated, ignore this section and analyse the spec
 
 ## Output structure
 
-Produce the following sections for this sub-group:
+Produce the following sections for this sub-group. Organise the analysis based on what is relevant — go into depth on each point; these analyses feed the cross-cutting synthesis and must be analytically thorough.
 
 ### Who is impacted
+
 State the modifier combination and summarise the material features that define this sub-group's circumstances. What are the key constraints and conditions relevant to this policy?
 
 ### How they are impacted
+
 Analyse how the policy's mechanism interacts with this sub-group's material features. What changes for them? Through what pathways does the policy reach this sub-group?
 
 ### Benefits and harms
+
 - **Potential benefits**: What could improve for this sub-group? Be specific about mechanisms.
 - **Potential harms**: What could worsen? Include indirect and second-order effects.
 - **Ambiguous effects**: Where is the direction unclear or dependent on implementation?
 
 ### Impact dimensions
+
 Analyse across specific dimensions, as relevant:
 - **Financial impact**: How does this affect their spending, budgets, trade-offs?
 - **Health impact**: What health outcomes might change? Through what pathways?
@@ -100,7 +104,19 @@ Analyse across specific dimensions, as relevant:
 - **Social impact**: How does this affect food-related social practices, dignity, or autonomy?
 
 ### Uncertainties
+
 What can this analysis NOT determine for this sub-group? What depends on implementation details, market responses, or factors not captured in the evidence? What would need real consultation with people in these circumstances to understand?
+
+## Formatting requirements
+
+Formatting should make your analysis more scannable — not shorter. Prioritise analytical depth; do not truncate reasoning to fit a template.
+
+- Use **clear hierarchical headings** (`###`, `####`) where they help structure a long analysis. You are not required to use a fixed set of sub-headings beyond the sections above.
+- Use **bold** for the first few words of key findings or important points — enough that a reader scanning bolded text gets the gist. Do **not** bold entire sentences or entire bullet points. Only the lead-in phrase should be bold, e.g.:
+  - **Convenience store reliance** means capped items are directly relevant, but tight margins raise de-stocking risk.
+  - NOT: **Convenience store reliance means capped items are directly relevant, but tight margins raise de-stocking risk.**
+- Use bullet points where they aid readability, particularly for listing distinct impacts or risks. Don't force everything into bullets — extended analytical reasoning is better as prose.
+- Use **horizontal rules** (`---`) between major sections when a heading alone isn't enough visual break.
 
 ## What you must NOT do
 

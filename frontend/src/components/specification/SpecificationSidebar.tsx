@@ -25,6 +25,12 @@ import type {
   SubGroup,
 } from "@/lib/types";
 import { TAXONOMY_LABELS } from "@/lib/types";
+import {
+  SYNTHESIS_SECTION_IDS,
+  SYNTHESIS_SECTION_LABELS,
+  type SynthesisSectionId,
+} from "@/lib/analysis-sections";
+
 
 interface SpecificationSidebarProps {
   spec: PolicySummarySpec;
@@ -41,6 +47,7 @@ interface SpecificationSidebarProps {
   isLoading?: boolean;
   activeEvidenceSearch?: string | null;
   onSelectSection?: (sectionId: string) => void;
+  synthesisSubsteps?: Record<SynthesisSectionId, AnalysisStep["status"]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +451,7 @@ export function SpecificationSidebar({
   isLoading,
   activeEvidenceSearch,
   onSelectSection,
+  synthesisSubsteps,
 }: SpecificationSidebarProps) {
   const isSpecifying = stage === "specifying";
   const isAnalysing = stage === "analysing";
@@ -581,8 +589,8 @@ export function SpecificationSidebar({
             <>
               <div className="mx-4 border-t border-[var(--color-border)]" />
               <div className="px-4 pt-3">
-                <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Equity Assessment
+                <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
+                  Synthesis
                 </h3>
                 {awaitingSynthesis && (
                   <button
@@ -594,13 +602,25 @@ export function SpecificationSidebar({
                     Run synthesis
                   </button>
                 )}
-                <StepEntry
-                  status={synthesisStep.status}
-                  label="Equity synthesis and provocations"
-                  isLast
-                  onClick={() => onSelectSection?.("synthesis")}
-                  completedVariant="synthesis"
-                />
+                <div className="synthesis-substep space-y-0">
+                  {SYNTHESIS_SECTION_IDS.map((sectionId, i) => {
+                    const subStatus =
+                      synthesisSubsteps?.[sectionId] ??
+                      (synthesisStep.status === "pending"
+                        ? "pending"
+                        : synthesisStep.status);
+                    return (
+                      <StepEntry
+                        key={sectionId}
+                        status={subStatus}
+                        label={SYNTHESIS_SECTION_LABELS[sectionId]}
+                        isLast={i === SYNTHESIS_SECTION_IDS.length - 1}
+                        onClick={() => onSelectSection?.(sectionId)}
+                        completedVariant="synthesis"
+                      />
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}

@@ -9,7 +9,7 @@ import {
   stripIncompleteStructuredBlocks,
   stripProposedSubGroupsContent,
 } from "@/lib/grounding-badges";
-import type { RawEvidenceSearch } from "@/lib/types";
+import type { RawEvidenceSearch, SubGroup } from "@/lib/types";
 import { BadgePopoverManager } from "./BadgePopover";
 
 const TRAILING_PARTIAL_TAG_REGEX = /\s*<[a-z_]{0,25}$/;
@@ -20,12 +20,18 @@ interface AnalysisSectionPanelProps {
   content: string;
   isStreaming: boolean;
   rawEvidence?: RawEvidenceSearch[];
+  sectionType?: "subgroup" | "synthesis";
+  confirmedSubGroups?: SubGroup[];
+  onNavigateToSection?: (sectionId: string) => void;
 }
 
 export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   content,
   isStreaming,
   rawEvidence,
+  sectionType = "subgroup",
+  confirmedSubGroups,
+  onNavigateToSection,
 }: AnalysisSectionPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -112,6 +118,9 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
           containerRef={proseRef}
           content={processed}
           rawEvidence={rawEvidence}
+          sectionType={sectionType}
+          confirmedSubGroups={confirmedSubGroups}
+          onNavigateToSection={onNavigateToSection}
         />
       )}
     </div>

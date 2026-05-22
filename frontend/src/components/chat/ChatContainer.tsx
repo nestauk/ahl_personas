@@ -30,6 +30,12 @@ import {
   type SpecMetadata,
   type SubGroup,
 } from "@/lib/types";
+import {
+  SYNTHESIS_SECTION_IDS,
+  SYNTHESIS_SECTION_LABELS,
+  deriveSynthesisSubstepStatus,
+  isSynthesisSection,
+} from "@/lib/analysis-sections";
 
 function parseSpecFromData(
   data: JSONValue[] | undefined,
@@ -174,8 +180,8 @@ export function ChatContainer() {
           if (sectionId === "scan") {
             name = "Population Relevance Assessment";
             shouldActivateScan = true;
-          } else if (sectionId === "synthesis") {
-            name = "Equity synthesis and provocations";
+          } else if (isSynthesisSection(sectionId)) {
+            name = SYNTHESIS_SECTION_LABELS[sectionId];
           } else if (sectionId.startsWith("sg_") && subgroups) {
             const idx = parseInt(sectionId.slice(3), 10);
             name = subgroups[idx]?.name || `Sub-group ${idx + 1}`;
@@ -265,6 +271,19 @@ export function ChatContainer() {
         const pending = pendingDeltasRef.current;
         pending.set(sectionId, (pending.get(sectionId) ?? "") + delta);
 
+        if (isSynthesisSection(sectionId)) {
+          setStreamingSectionIfChanged(sectionId);
+          const current = activeSectionRef.current;
+          const lastStreamed = lastStreamedSectionRef.current;
+          if (
+            current === null ||
+            current === lastStreamed ||
+            (current && isSynthesisSection(current))
+          ) {
+            setActiveSectionIfChanged(sectionId);
+          }
+        }
+
         if (flushRafRef.current === null) {
           flushRafRef.current = requestAnimationFrame(flushPendingDeltas);
         }
@@ -290,9 +309,28 @@ export function ChatContainer() {
             });
             setActiveSectionIfChanged("scan");
             setStreamingSectionIfChanged("scan");
+          } else if (step === "synthesis") {
+            setAnalysisSections((prev) => {
+              const next = new Map(prev);
+              for (const id of SYNTHESIS_SECTION_IDS) {
+                if (!next.has(id)) {
+                  next.set(id, {
+                    id,
+                    name: SYNTHESIS_SECTION_LABELS[id],
+                    content: "",
+                  });
+                }
+              }
+              return next;
+            });
+            setStreamingSectionIfChanged("equity_assessment");
+            const current = activeSectionRef.current;
+            const lastStreamed = lastStreamedSectionRef.current;
+            if (current === null || current === lastStreamed) {
+              setActiveSectionIfChanged("equity_assessment");
+            }
           } else {
-            const sectionId =
-              step === "synthesis" ? "synthesis" : `sg_${index ?? 0}`;
+            const sectionId = `sg_${index ?? 0}`;
             setStreamingSectionIfChanged(sectionId);
             const current = activeSectionRef.current;
             const lastStreamed = lastStreamedSectionRef.current;
@@ -562,6 +600,21 @@ export function ChatContainer() {
     });
   }, [append]);
 
+  const synthesisComplete = useMemo(() => {
+    const synthStep = analysisProgress.steps.find((s) => s.step === "synthesis");
+    return synthStep?.status === "complete" || synthStep?.status === "error";
+  }, [analysisProgress]);
+
+  const synthesisSubsteps = useMemo(
+    () =>
+      deriveSynthesisSubstepStatus(
+        analysisProgress.steps.find((s) => s.step === "synthesis")?.status,
+        streamingSection,
+        analysisSections,
+      ),
+    [analysisProgress, streamingSection, analysisSections],
+  );
+
   const awaitingSynthesis = useMemo(() => {
     const steps = analysisProgress.steps;
     const subgroupSteps = steps.filter((s) => s.step === "subgroup");
@@ -582,7 +635,7 @@ export function ChatContainer() {
     const sections = analysisSectionsRef.current;
     const texts: { name: string; text: string }[] = [];
     sections.forEach((section) => {
-      if (section.id !== "scan" && section.id !== "policy_summary") {
+      if (section.id.startsWith("sg_")) {
         texts.push({ name: section.name, text: section.content });
       }
     });
@@ -680,6 +733,7 @@ export function ChatContainer() {
           isLoading={isLoading}
           activeEvidenceSearch={activeEvidenceSearch}
           onSelectSection={handleSelectSection}
+          synthesisSubsteps={synthesisSubsteps}
         />
 
         {/* Chat (centre, always present) */}
@@ -709,10 +763,14 @@ export function ChatContainer() {
           >
             <AnalysisView
               policySummary={policySummary}
+              policyName={specMeta.spec.policy_name}
               sections={analysisSections}
               activeSection={activeSection}
               streamingSection={streamingSection}
               subgroupEvidence={subgroupEvidence}
+              confirmedSubGroups={confirmedSubGroups}
+              synthesisComplete={synthesisComplete}
+              onNavigateToSection={handleSelectSection}
             />
           </div>
         )}

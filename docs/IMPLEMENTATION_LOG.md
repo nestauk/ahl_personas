@@ -1060,3 +1060,90 @@ Observed that the LLM frequently prefixes queries with "UK" (e.g. "UK urban low-
 - No persistence of analyses across sessions
 - No authentication or user management
 - No tests
+
+---
+
+## 2026-05-22 — Synthesis split, synthesis badges, formatting polish, artifact subtitles
+
+### Summary
+
+Four connected improvements to analysis artifacts: (1) split the single synthesis output into three streamed sections (`equity_assessment`, `risks_provocations`, `design_improvements`) via `<!-- SECTION: ... -->` markers in one LLM call; (2) synthesis-specific grounding badges `[Sub-group]`, `[Cross-cutting]`, `[Reasoning]`, `[Gap]` with popover navigation to sub-group analyses; (3) shared formatting rules across scan, sub-group, and synthesis prompts plus structured sub-group headings; (4) fixed and dynamic subtitles on every artifact in the reading panel, with nested SYNTHESIS sub-steps in the sidebar.
+
+Zero additional LLM calls — section routing happens in `stream_synthesis_only` during streaming.
+
+### Backend
+
+| Change | Detail |
+|--------|--------|
+| `analysis_synthesis.md` | Three marked sections, synthesis badge instructions (exact sub-group names required), per-section structure guidance, formatting rules |
+| `analysis_subgroup.md` | New heading scaffold (`### How this policy interacts…`, `#### Financial impact`, etc.) + formatting rules |
+| `analysis_scan.md` | Formatting rules section |
+| `orchestrator.py` | `_SynthesisSectionParser` strips markers and emits `analysis_content` per section; defaults to `equity_assessment` if markers omitted |
+
+### Frontend
+
+| Change | Detail |
+|--------|--------|
+| `analysis-sections.ts` | Synthesis IDs, labels, subtitles, `deriveSynthesisSubstepStatus`, `resolveSubgroupSectionId` (exact + fuzzy keyword fallback) |
+| `ChatContainer.tsx` | Pre-init three synthesis sections on run; stream routing; `handleRunSynthesis` sends only `sg_*` texts; `synthesisComplete` + substep status for sidebar |
+| `SpecificationSidebar.tsx` | "SYNTHESIS" header with three nested clickable sub-steps |
+| `AnalysisView.tsx` | Unified subtitles; indigo header for all synthesis sections; empty-section fallback note when risks/design not generated separately |
+| `grounding-badges.ts` | `[Sub-group]` (teal) and `[Cross-cutting]` (purple) badge rendering |
+| `BadgePopover.tsx` | `sectionType` prop — synthesis badges show detail + navigation links (no raw evidence chunks) |
+| `globals.css` | `.badge-crosscutting`, `.synthesis-substep` |
+| `session-cache.ts` | Drop legacy `synthesis` section key on hydrate |
+
+### Edge cases
+
+- **Missing section markers:** All content lands in `equity_assessment`; empty `risks_provocations` / `design_improvements` show a muted note linking to Equity Assessment after synthesis completes.
+- **Badge name mismatch:** Prompt requires exact sub-group names; `resolveSubgroupSectionId` fuzzy-matches as fallback.
+
+### Files modified
+
+**Backend:** `analysis_scan.md`, `analysis_subgroup.md`, `analysis_synthesis.md`, `orchestrator.py`
+
+**Frontend:** `analysis-sections.ts` (new), `ChatContainer.tsx`, `SpecificationSidebar.tsx`, `AnalysisView.tsx`, `AnalysisSectionPanel.tsx`, `BadgePopover.tsx`, `grounding-badges.ts`, `globals.css`, `session-cache.ts`
+
+---
+
+## 2026-05-22 — Roll back sub-group formatting depth constraints
+
+### Problem
+
+Rigid heading scaffold and paragraph-length limits in `analysis_subgroup.md` reduced analytical depth in per-sub-group outputs, weakening synthesis meta-analysis. Bold rules were also over-applied (entire bullets bolded).
+
+### Changes
+
+| Prompt | Reverted / removed | Kept / updated |
+|--------|-------------------|----------------|
+| `analysis_subgroup.md` | Fixed `####` impact-dimension template; 2–4 sentence and 5-sentence paragraph caps | Original sections (Who is impacted, How they are impacted, Benefits and harms, Impact dimensions, Uncertainties); toned-down bold lead-in only; soft bullet guidance; explicit “depth over brevity” principle |
+| `analysis_synthesis.md` | Paragraph length caps; aggressive bold-everything rules | Three-section split, markers, synthesis badges, per-section structure; toned-down bold; “one sentence” mechanism bullets relaxed to full detail |
+| `analysis_scan.md` | — | Unchanged |
+
+### Files modified
+
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md`
+- `src/food_policy_impact_tool/llm/prompts/analysis_synthesis.md`
+
+---
+
+## 2026-05-22 — SG short labels for synthesis badges and popovers
+
+### Problem
+
+Full sub-group names in synthesis inline badges and popovers produced repetitive, hard-to-scan walls of text.
+
+### Solution
+
+- **Prompt/orchestrator:** Synthesis uses `SG1`, `SG2`, … (1-indexed) in inline badges; `<badge_detail>` leads with the finding; cross-cutting/gap details list `SG1, SG3` only. Orchestrator prepends a reference label list and headings `### SG{n}: {name}`.
+- **Badges:** `[SG5]` or `[SG5: brief hint]` render as compact teal pills; legacy `[Sub-group: …]` still supported.
+- **Popovers:** SG badge shows compact context line + finding + “View SG5 analysis →”; cross-cutting/gap show finding first with inline `SG1 · SG3` links (`title` = full name).
+
+### Files modified
+
+- `analysis_synthesis.md`, `orchestrator.py`
+- `analysis-sections.ts`, `grounding-badges.ts`, `BadgePopover.tsx`
+
+### Fix: synthesis section split when HTML markers omitted (2026-05-22)
+
+The model often outputs plain `Risks & Provocations` / `Design Improvements` lines (no `<!-- SECTION: -->`), so all content stayed in `equity_assessment`. `_SynthesisSectionParser` now splits on line boundaries using HTML markers **or** recognised section headings (with or without `##`). Logs a warning if fewer than three sections were seen. Prompt updated to require `##` headings when markers are omitted.

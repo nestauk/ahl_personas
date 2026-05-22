@@ -29,6 +29,119 @@ _SUBGROUPS_BLOCK_PATTERN = re.compile(
 _MAX_RETRIES = 2
 _RETRY_STATUS_CODES = {429, 500, 503}
 
+_SYNTHESIS_SECTION_MARKER = re.compile(
+    r"<!--\s*SECTION:\s*(equity_assessment|risks_provocations|design_improvements)\s*-->",
+    re.IGNORECASE,
+)
+_SYNTHESIS_SECTION_MARKER_LINE = re.compile(
+    r"^\s*<!--\s*SECTION:\s*(equity_assessment|risks_provocations|design_improvements)\s*-->\s*$",
+    re.IGNORECASE,
+)
+_VALID_SYNTHESIS_SECTIONS = frozenset({
+    "equity_assessment",
+    "risks_provocations",
+    "design_improvements",
+})
+# Fallback when the model omits HTML markers but uses section titles (with or without ##).
+_SYNTHESIS_HEADING_LINES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^#{1,2}\s*Equity Assessment\s*$", re.IGNORECASE), "equity_assessment"),
+    (
+        re.compile(r"^#{1,2}\s*Risks\s*(?:&|and)\s*Provocations\s*$", re.IGNORECASE),
+        "risks_provocations",
+    ),
+    (re.compile(r"^#{1,2}\s*Design Improvements\s*$", re.IGNORECASE), "design_improvements"),
+    (re.compile(r"^Equity Assessment\s*$", re.IGNORECASE), "equity_assessment"),
+    (
+        re.compile(r"^Risks\s*(?:&|and)\s*Provocations\s*$", re.IGNORECASE),
+        "risks_provocations",
+    ),
+    (re.compile(r"^Design Improvements\s*$", re.IGNORECASE), "design_improvements"),
+]
+
+
+class _SynthesisSectionParser:
+    """Splits synthesis stream on SECTION markers and recognised section headings."""
+
+    _PARTIAL_PREFIXES = (
+        "<", "<!", "<!--", "<!-- ", "<!-- S", "<!-- SE", "<!-- SEC",
+        "<!-- SECT", "<!-- SECTI", "<!-- SECTIO", "<!-- SECTION",
+        "<!-- SECTION:", "<!-- SECTION: ", "<!-- SECTION: e",
+        "<!-- SECTION: equity_assessment", "<!-- SECTION: risks_provocations",
+        "<!-- SECTION: design_improvements",
+    )
+
+    def __init__(self) -> None:
+        self._current = "equity_assessment"
+        self._buffer = ""
+        self._sections_seen: set[str] = {"equity_assessment"}
+
+    def feed(self, delta: str) -> list[tuple[str, str]]:
+        self._buffer += delta
+        results: list[tuple[str, str]] = []
+
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            results.extend(self._emit_line(line + "\n"))
+
+        hold_from = self._find_partial_marker_start(self._buffer)
+        if hold_from is not None:
+            emit = self._buffer[:hold_from]
+            self._buffer = self._buffer[hold_from:]
+            if emit:
+                results.append((self._current, emit))
+
+        return results
+
+    def flush(self) -> list[tuple[str, str]]:
+        results: list[tuple[str, str]] = []
+        if self._buffer:
+            results.extend(self._emit_line(self._buffer))
+            self._buffer = ""
+        if len(self._sections_seen) < 3:
+            logger.warning(
+                "[synthesis] Section split incomplete — only saw: %s. "
+                "Risks/design content may be merged into equity_assessment.",
+                sorted(self._sections_seen),
+            )
+        return results
+
+    def _emit_line(self, line: str) -> list[tuple[str, str]]:
+        stripped = line.strip()
+        marker_match = _SYNTHESIS_SECTION_MARKER_LINE.match(stripped)
+        if marker_match:
+            section = marker_match.group(1).lower()
+            if section in _VALID_SYNTHESIS_SECTIONS:
+                self._current = section
+                self._sections_seen.add(section)
+            return []
+
+        for pattern, section_id in _SYNTHESIS_HEADING_LINES:
+            if pattern.match(stripped):
+                self._current = section_id
+                self._sections_seen.add(section_id)
+                break
+
+        return [(self._current, line)]
+
+    @classmethod
+    def _find_partial_marker_start(cls, text: str) -> int | None:
+        for i in range(len(text) - 1, -1, -1):
+            tail = text[i:]
+            if any(p.startswith(tail) and p != tail for p in cls._PARTIAL_PREFIXES):
+                return i
+            if "\n" not in tail and cls._line_might_be_partial_heading(tail):
+                return i
+        return None
+
+    @staticmethod
+    def _line_might_be_partial_heading(tail: str) -> bool:
+        prefixes = (
+            "Risks", "Design", "Equity", "##", "# ",
+            "Risks &", "Risks and", "Design Imp",
+        )
+        return any(tail.startswith(p) for p in prefixes)
+
+
 SEARCH_EVIDENCE_TOOL = {
     "type": "function",
     "function": {
@@ -550,9 +663,19 @@ async def _stream_synthesis(
     settings = get_settings()
     raw_prompt = _load_prompt("analysis_synthesis.md")
 
-    analyses_text = ""
+    mapping_lines = [
+        f"- SG{i}: {analysis['name']}"
+        for i, analysis in enumerate(sub_group_analyses, 1)
+    ]
+    analyses_text = (
+        "Sub-group reference labels:\n"
+        + "\n".join(mapping_lines)
+        + "\n"
+    )
     for i, analysis in enumerate(sub_group_analyses, 1):
-        analyses_text += f"\n\n### Sub-group {i}: {analysis['name']}\n\n{analysis['text']}"
+        analyses_text += (
+            f"\n\n### SG{i}: {analysis['name']}\n\n{analysis['text']}"
+        )
 
     system_prompt = raw_prompt.replace(
         "{{POLICY_SPECIFICATION}}", policy_spec,
@@ -565,8 +688,9 @@ async def _stream_synthesis(
         {
             "role": "user",
             "content": (
-                "Based on the per-sub-group analyses above, produce the cross-cutting "
-                "equity assessment and provocations."
+                "Based on the per-sub-group analyses above, produce the three marked "
+                "sections: equity assessment, risks and provocations, "
+                "and design improvements."
             ),
         },
     ]
@@ -759,14 +883,23 @@ async def stream_synthesis_only(
 
     try:
         synthesis_start = time.monotonic()
+        parser = _SynthesisSectionParser()
         async for part in _stream_synthesis(client, policy_spec, analysis_texts):
             if part[0] == "text":
-                yield ("analysis_content", {
-                    "section": "synthesis",
-                    "delta": part[1],
-                })
+                for section_id, content_delta in parser.feed(part[1]):
+                    if content_delta:
+                        yield ("analysis_content", {
+                            "section": section_id,
+                            "delta": content_delta,
+                        })
             else:
                 yield part
+        for section_id, content_delta in parser.flush():
+            if content_delta:
+                yield ("analysis_content", {
+                    "section": section_id,
+                    "delta": content_delta,
+                })
         logger.info(
             "[synthesis] COMPLETE in %.1fs",
             time.monotonic() - synthesis_start,
@@ -775,7 +908,7 @@ async def stream_synthesis_only(
     except Exception:
         logger.exception("[synthesis] FAILED")
         yield ("analysis_content", {
-            "section": "synthesis",
+            "section": "equity_assessment",
             "delta": (
                 "\n\n> **Analysis error**: The equity synthesis could not be completed. "
                 "The per-sub-group analyses above are still available.\n\n"

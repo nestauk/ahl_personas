@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as Popover from "@radix-ui/react-popover";
-import type { RawEvidenceChunk, RawEvidenceSearch } from "@/lib/types";
+import type { RawEvidenceChunk, RawEvidenceSearch, SubGroup } from "@/lib/types";
+import {
+  buildSynthesisPopoverModel,
+  compactSubgroupName,
+  type ResolvedSubgroupRef,
+} from "@/lib/analysis-sections";
 
 interface PopoverState {
   anchor: HTMLElement;
@@ -30,6 +35,9 @@ const TYPE_LABELS: Record<string, string> = {
   analogical: "Model's explanation",
   reasoning: "Reasoning chain",
   gap: "Evidence gap",
+  subgroup: "Sub-group finding",
+  sg: "Sub-group finding",
+  crosscutting: "Cross-cutting pattern",
 };
 
 const STOP_WORDS = new Set([
@@ -294,6 +302,142 @@ function RawEvidenceSection({ display }: { display: EvidenceDisplay }) {
   );
 }
 
+
+
+function SgInlineLinks({
+  refs,
+  onNavigateToSection,
+}: {
+  refs: ResolvedSubgroupRef[];
+  onNavigateToSection: (sectionId: string) => void;
+}) {
+  const unique = refs.filter(
+    (ref, i, arr) => arr.findIndex((r) => r.sectionId === ref.sectionId) === i,
+  );
+  if (unique.length === 0) return null;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-0.5">
+      {unique.map((ref, i) => (
+        <span key={ref.sectionId}>
+          {i > 0 && (
+            <span className="text-[var(--color-text-muted)]" aria-hidden>
+              {" "}
+              ·{" "}
+            </span>
+          )}
+          <button
+            type="button"
+            title={ref.fullName}
+            onClick={() => onNavigateToSection(ref.sectionId)}
+            className="font-medium text-indigo-600 underline-offset-2 hover:underline"
+          >
+            {ref.shortLabel}
+          </button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function SynthesisPopoverBody({
+  badgeType,
+  detail,
+  sourceLabel,
+  confirmedSubGroups,
+  onNavigateToSection,
+}: {
+  badgeType: string;
+  detail: string;
+  sourceLabel: string;
+  confirmedSubGroups: SubGroup[];
+  onNavigateToSection: (sectionId: string) => void;
+}) {
+  const model = buildSynthesisPopoverModel(
+    badgeType,
+    detail,
+    sourceLabel,
+    confirmedSubGroups,
+  );
+
+  if (badgeType === "crosscutting") {
+    const crossLabel = sourceLabel.toLowerCase().startsWith("cross-cutting")
+      ? sourceLabel
+      : `Cross-cutting: ${sourceLabel}`;
+
+    return (
+      <>
+        <p className="text-[10px] font-medium text-[var(--color-text-muted)]">
+          {crossLabel}
+        </p>
+        <p className="mt-1.5 text-xs leading-relaxed text-[var(--color-text)]">
+          {model.narrative}
+        </p>
+        {model.referencedSubgroups.length > 0 && (
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            Affected sub-groups:{" "}
+            <SgInlineLinks
+              refs={model.referencedSubgroups}
+              onNavigateToSection={onNavigateToSection}
+            />
+          </p>
+        )}
+      </>
+    );
+  }
+
+  if (badgeType === "gap") {
+    const n = model.referencedSubgroups.length;
+    const total = confirmedSubGroups.length;
+
+    return (
+      <>
+        <p className="text-xs leading-relaxed text-[var(--color-text)]">
+          {model.narrative}
+        </p>
+        {n > 0 && (
+          <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+            Flagged by {n} of {total} sub-groups (
+            <SgInlineLinks
+              refs={model.referencedSubgroups}
+              onNavigateToSection={onNavigateToSection}
+            />
+            )
+          </p>
+        )}
+      </>
+    );
+  }
+
+  const primary = model.primarySubgroup ?? model.referencedSubgroups[0];
+
+  return (
+    <>
+      {primary && (
+        <p className="text-[11px] leading-snug text-[var(--color-text-muted)]">
+          <span className="font-semibold text-[var(--color-text)]">
+            {primary.shortLabel}:
+          </span>{" "}
+          {compactSubgroupName(primary.fullName)}
+        </p>
+      )}
+      <p className="mt-1.5 text-xs leading-relaxed text-[var(--color-text)]">
+        {model.narrative}
+      </p>
+      {primary && (
+        <button
+          type="button"
+          title={primary.fullName}
+          onClick={() => onNavigateToSection(primary.sectionId)}
+          className="mt-2 block text-left text-xs font-medium text-indigo-600 underline-offset-2 hover:underline"
+        >
+          View {primary.shortLabel} analysis →
+        </button>
+      )}
+    </>
+  );
+}
+
 /**
  * Attaches click handlers to all `[data-badge-detail]` spans within a
  * container and renders a Radix popover when one is clicked.
@@ -302,10 +446,16 @@ export function BadgePopoverManager({
   containerRef,
   content,
   rawEvidence,
+  sectionType = "subgroup",
+  confirmedSubGroups,
+  onNavigateToSection,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   content: string;
   rawEvidence?: RawEvidenceSearch[];
+  sectionType?: "subgroup" | "synthesis";
+  confirmedSubGroups?: SubGroup[];
+  onNavigateToSection?: (sectionId: string) => void;
 }) {
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const openRef = useRef(false);
@@ -327,7 +477,13 @@ export function BadgePopoverManager({
       return;
     }
 
-    const sourceLabel = badge.textContent?.replace(/^(Evidence|Analogical):\s*/, "") ?? "";
+    const sourceLabel =
+      badge.getAttribute("data-badge-ref") ??
+      badge.textContent?.replace(
+        /^(Evidence|Analogical|Sub-group|Cross-cutting|SG\d+):\s*/,
+        "",
+      ) ??
+      "";
     virtualAnchorRef.current = badge;
     setPopover({ anchor: badge, detail, badgeType, sourceLabel });
     openRef.current = true;
@@ -370,7 +526,17 @@ export function BadgePopoverManager({
 
   const typeLabel = TYPE_LABELS[popover.badgeType] ?? "Detail";
   const showRawEvidence =
-    popover.badgeType === "evidence" || popover.badgeType === "analogical";
+    sectionType === "subgroup" &&
+    (popover.badgeType === "evidence" || popover.badgeType === "analogical");
+
+  const showSynthesisPopover =
+    sectionType === "synthesis" &&
+    confirmedSubGroups &&
+    onNavigateToSection &&
+    (popover.badgeType === "subgroup" ||
+      popover.badgeType === "sg" ||
+      popover.badgeType === "crosscutting" ||
+      popover.badgeType === "gap");
 
   return createPortal(
     <Popover.Root open onOpenChange={handleOpenChange} modal={false}>
@@ -387,9 +553,19 @@ export function BadgePopoverManager({
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
               {typeLabel}
             </div>
-            <p className="text-xs leading-relaxed text-[var(--color-text)]">
-              {popover.detail}
-            </p>
+            {showSynthesisPopover ? (
+              <SynthesisPopoverBody
+                badgeType={popover.badgeType}
+                detail={popover.detail}
+                sourceLabel={popover.sourceLabel}
+                confirmedSubGroups={confirmedSubGroups!}
+                onNavigateToSection={onNavigateToSection!}
+              />
+            ) : (
+              <p className="text-xs leading-relaxed text-[var(--color-text)]">
+                {popover.detail}
+              </p>
+            )}
             {showRawEvidence && evidenceDisplay && (
               <RawEvidenceSection display={evidenceDisplay} />
             )}

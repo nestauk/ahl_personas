@@ -1,8 +1,11 @@
 const BADGE_DETAIL_REGEX =
-  /\[(?:(Evidence|Analogical):\s*([^\]]+)|(Reasoning|Gap))\]<badge_detail>([\s\S]*?)<\/badge_detail>/g;
+  /\[(?:(Evidence|Analogical|Sub-group|Cross-cutting):\s*([^\]]+)|(SG\d+)(?::\s*([^\]]*))?|(Reasoning|Gap))\]<badge_detail>([\s\S]*?)<\/badge_detail>/g;
 
 const EVIDENCE_TAG_REGEX = /\[Evidence:\s*([^\]]+)\]/g;
 const ANALOGICAL_TAG_REGEX = /\[Analogical:\s*([^\]]+)\]/g;
+const SUBGROUP_TAG_REGEX = /\[Sub-group:\s*([^\]]+)\]/g;
+const SG_TAG_REGEX = /\[(SG\d+)(?::\s*([^\]]*))?\]/g;
+const CROSSCUTTING_TAG_REGEX = /\[Cross-cutting:\s*([^\]]+)\]/g;
 const REASONING_TAG_REGEX = /\[Reasoning\]/g;
 const GAP_TAG_REGEX = /\[Gap\]/g;
 const HIGH_TAG_REGEX = /\[(?:HIGH|High)\]/g;
@@ -15,6 +18,8 @@ export const COMPLETE_SUBGROUPS_REGEX =
 const STRUCTURED_OUTPUT_TAIL_REGEX =
   /\n(?:#{2,3}\s*Part \d+\s*[—–-]\s*Structured output[^\n]*|#{2,3}\s*Structured output requirement)[\s\S]*$/i;
 
+const PARTIAL_SECTION_MARKER_REGEX = /\s*<!--\s*SECTION:[\s\S]*$/;
+
 function escapeAttr(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -23,10 +28,24 @@ function escapeAttr(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * Removes the machine-readable sub-groups block and the Part 3 structured
- * output section that precedes it (parsed separately for the sidebar).
- */
+function renderSgPill(sgToken: string, hint: string | undefined, detail?: string): string {
+  const normalised = sgToken.toUpperCase();
+  const inlineLabel =
+    hint && hint.trim().length > 0 && hint.trim().length <= 36
+      ? `${normalised}: ${hint.trim()}`
+      : normalised;
+  const attrs = [
+    'class="badge-evidence"',
+    detail ? `data-badge-detail="${escapeAttr(detail.trim())}"` : "",
+    'data-badge-type="sg"',
+    `data-badge-ref="${escapeAttr(normalised)}"`,
+    `title="${escapeAttr(normalised)}"`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return `<span ${attrs}>${inlineLabel}</span>`;
+}
+
 export function stripProposedSubGroupsContent(content: string): string {
   return content
     .replace(COMPLETE_SUBGROUPS_REGEX, "")
@@ -34,10 +53,6 @@ export function stripProposedSubGroupsContent(content: string): string {
     .trimEnd();
 }
 
-/**
- * Strips trailing incomplete structured blocks during streaming.
- * Only removes an unclosed `<badge_detail>` — complete blocks are kept.
- */
 export function stripIncompleteStructuredBlocks(content: string): string {
   let stripped = content.replace(
     /\s*<(?:proposed_sub_groups|policy_spec)>[\s\S]*$/,
@@ -45,6 +60,7 @@ export function stripIncompleteStructuredBlocks(content: string): string {
   );
 
   stripped = stripped.replace(STRUCTURED_OUTPUT_TAIL_REGEX, "");
+  stripped = stripped.replace(PARTIAL_SECTION_MARKER_REGEX, "");
 
   const lastOpen = stripped.lastIndexOf("<badge_detail>");
   if (lastOpen !== -1) {
@@ -60,17 +76,36 @@ export function stripIncompleteStructuredBlocks(content: string): string {
 export function renderGroundingBadges(content: string): string {
   let result = content.replace(
     BADGE_DETAIL_REGEX,
-    (_match, evidenceType, sourceRef, simpleType, detail) => {
-      const trimmedDetail = detail.trim();
+    (
+      _match,
+      typedLabel,
+      sourceRef,
+      sgToken,
+      sgHint,
+      simpleType,
+      detail,
+    ) => {
+      const trimmedDetail = (detail as string).trim();
       const encoded = escapeAttr(trimmedDetail);
 
-      if (evidenceType) {
+      if (typedLabel === "Evidence" || typedLabel === "Analogical") {
         const badgeClass =
-          evidenceType === "Evidence" ? "badge-evidence" : "badge-analogical";
-        const label = `${evidenceType}: ${sourceRef}`;
-        return `<span class="${badgeClass}" data-badge-detail="${encoded}" data-badge-type="${evidenceType.toLowerCase()}">${label}</span>`;
+          typedLabel === "Evidence" ? "badge-evidence" : "badge-analogical";
+        const label = `${typedLabel}: ${sourceRef}`;
+        return `<span class="${badgeClass}" data-badge-detail="${encoded}" data-badge-type="${typedLabel.toLowerCase()}">${label}</span>`;
       }
-      const type = simpleType.toLowerCase();
+      if (typedLabel === "Sub-group") {
+        const ref = (sourceRef as string).trim();
+        return `<span class="badge-evidence" data-badge-detail="${encoded}" data-badge-type="subgroup" data-badge-ref="${escapeAttr(ref)}" title="${escapeAttr(ref)}">Sub-group</span>`;
+      }
+      if (typedLabel === "Cross-cutting") {
+        const label = `Cross-cutting: ${sourceRef}`;
+        return `<span class="badge-crosscutting" data-badge-detail="${encoded}" data-badge-type="crosscutting">${label}</span>`;
+      }
+      if (sgToken) {
+        return renderSgPill(sgToken as string, sgHint as string | undefined, trimmedDetail);
+      }
+      const type = (simpleType as string).toLowerCase();
       const badgeClass = type === "reasoning" ? "badge-reasoning" : "badge-gap";
       return `<span class="${badgeClass}" data-badge-detail="${encoded}" data-badge-type="${type}">${simpleType}</span>`;
     },
@@ -84,6 +119,16 @@ export function renderGroundingBadges(content: string): string {
     .replace(
       ANALOGICAL_TAG_REGEX,
       '<span class="badge-analogical">Analogical: $1</span>',
+    )
+    .replace(SUBGROUP_TAG_REGEX, () =>
+      '<span class="badge-evidence" data-badge-type="subgroup">Sub-group</span>',
+    )
+    .replace(SG_TAG_REGEX, (_m, sgToken, hint) =>
+      renderSgPill(sgToken, hint),
+    )
+    .replace(
+      CROSSCUTTING_TAG_REGEX,
+      '<span class="badge-crosscutting">Cross-cutting: $1</span>',
     )
     .replace(
       REASONING_TAG_REGEX,

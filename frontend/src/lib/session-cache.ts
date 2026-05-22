@@ -64,7 +64,7 @@ export function loadSession(): CachedSession | null {
 export function hydrateAnalysisSections(
   entries: [string, AnalysisSection][],
 ): Map<string, AnalysisSection> {
-  return new Map(entries);
+  return new Map(entries.filter(([id]) => id !== "synthesis"));
 }
 
 export function hydrateSubgroupEvidence(

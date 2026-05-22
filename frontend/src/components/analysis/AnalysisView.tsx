@@ -1,8 +1,14 @@
 "use client";
 
 import { FileText, Loader2 } from "lucide-react";
-import type { AnalysisSection, RawEvidenceSearch } from "@/lib/types";
+import type { AnalysisSection, RawEvidenceSearch, SubGroup } from "@/lib/types";
 import { TAXONOMY_LABELS } from "@/lib/types";
+import {
+  EMPTY_SYNTHESIS_SECTION_NOTE,
+  SYNTHESIS_SECTION_LABELS,
+  getSectionSubtitle,
+  isSynthesisSection,
+} from "@/lib/analysis-sections";
 import { AnalysisSectionPanel } from "./AnalysisSectionPanel";
 
 interface PolicySummaryData {
@@ -14,10 +20,14 @@ interface PolicySummaryData {
 
 interface AnalysisViewProps {
   policySummary: PolicySummaryData | null;
+  policyName?: string | null;
   sections: Map<string, AnalysisSection>;
   activeSection: string | null;
   streamingSection: string | null;
   subgroupEvidence: Map<string, RawEvidenceSearch[]>;
+  confirmedSubGroups?: SubGroup[] | null;
+  synthesisComplete?: boolean;
+  onNavigateToSection?: (sectionId: string) => void;
 }
 
 function buildSummaryContent(data: PolicySummaryData): string {
@@ -43,10 +53,14 @@ function buildSummaryContent(data: PolicySummaryData): string {
 
 export function AnalysisView({
   policySummary,
+  policyName,
   sections,
   activeSection,
   streamingSection,
   subgroupEvidence,
+  confirmedSubGroups,
+  synthesisComplete = false,
+  onNavigateToSection,
 }: AnalysisViewProps) {
   const effectiveSection = activeSection ?? (policySummary ? "policy_summary" : null);
 
@@ -58,13 +72,14 @@ export function AnalysisView({
             {policySummary.name}
           </h2>
           <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-            Summary of the policy being analysed — updates as the conversation progresses.
+            {getSectionSubtitle("policy_summary")}
           </p>
         </div>
         <AnalysisSectionPanel
           key="policy_summary"
           content={buildSummaryContent(policySummary)}
           isStreaming={false}
+          sectionType="subgroup"
         />
       </div>
     );
@@ -95,8 +110,26 @@ export function AnalysisView({
   }
 
   const isStreaming = streamingSection === effectiveSection;
-  const isScan = effectiveSection === "scan";
-  const isSynthesis = effectiveSection === "synthesis";
+  const isSynthesis =
+    effectiveSection !== null && isSynthesisSection(effectiveSection);
+  const title = isSynthesis
+    ? SYNTHESIS_SECTION_LABELS[effectiveSection]
+    : section.name;
+  const subtitle = effectiveSection
+    ? getSectionSubtitle(
+        effectiveSection,
+        policyName,
+        section.id.startsWith("sg_") ? section.name : null,
+      )
+    : null;
+
+  const showEmptySynthesisNote =
+    synthesisComplete &&
+    !isStreaming &&
+    effectiveSection &&
+    (effectiveSection === "risks_provocations" ||
+      effectiveSection === "design_improvements") &&
+    !section.content.trim();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -112,26 +145,48 @@ export function AnalysisView({
             isSynthesis ? "text-indigo-900" : "text-[var(--color-text)]"
           }`}
         >
-          {isSynthesis ? "Equity Assessment and Provocations" : section.name}
+          {title}
         </h2>
-        {isScan && (
-          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-            Initial assessment based on policy characteristics — the detailed
-            analysis will draw on the evidence base.
-          </p>
-        )}
-        {isSynthesis && (
-          <p className="mt-0.5 text-xs text-indigo-600">
-            Cross-cutting analysis across all sub-groups — patterns, tensions, and gaps.
+        {subtitle && (
+          <p
+            className={`mt-0.5 text-xs ${
+              isSynthesis ? "text-indigo-600" : "text-[var(--color-text-muted)]"
+            }`}
+          >
+            {subtitle}
           </p>
         )}
       </div>
-      <AnalysisSectionPanel
-        key={effectiveSection}
-        content={section.content}
-        isStreaming={isStreaming}
-        rawEvidence={effectiveSection ? subgroupEvidence.get(effectiveSection) : undefined}
-      />
+      {showEmptySynthesisNote ? (
+        <div className="flex flex-1 items-start px-8 py-6">
+          <p className="text-sm text-[var(--color-text-muted)]">
+            {EMPTY_SYNTHESIS_SECTION_NOTE}{" "}
+            {onNavigateToSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateToSection("equity_assessment")}
+                className="font-medium text-indigo-600 underline-offset-2 hover:underline"
+              >
+                Equity Assessment
+              </button>
+            )}
+          </p>
+        </div>
+      ) : (
+        <AnalysisSectionPanel
+          key={effectiveSection}
+          content={section.content}
+          isStreaming={isStreaming}
+          rawEvidence={
+            effectiveSection && !isSynthesis
+              ? subgroupEvidence.get(effectiveSection)
+              : undefined
+          }
+          sectionType={isSynthesis ? "synthesis" : "subgroup"}
+          confirmedSubGroups={confirmedSubGroups ?? undefined}
+          onNavigateToSection={onNavigateToSection}
+        />
+      )}
     </div>
   );
 }

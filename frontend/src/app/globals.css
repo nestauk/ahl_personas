@@ -125,6 +125,7 @@ body {
 /* Evidence grounding badges */
 .badge-evidence,
 .badge-analogical,
+.badge-crosscutting,
 .badge-reasoning,
 .badge-gap,
 .badge-high,
@@ -162,6 +163,12 @@ body {
   background-color: #ffe4e6;
   color: #be123c;
   border: 1px solid #fecdd3;
+}
+
+.badge-crosscutting {
+  background-color: #ede9fe;
+  color: #5b21b6;
+  border: 1px solid #ddd6fe;
 }
 
 .badge-high {
@@ -249,4 +256,14 @@ body {
   50% {
     opacity: 0.6;
   }
+}
+
+
+/* Nested synthesis sub-steps in sidebar */
+.synthesis-substep {
+  margin-left: 0.75rem;
+}
+
+.synthesis-substep .stepper-connector {
+  left: 23px;
 }
