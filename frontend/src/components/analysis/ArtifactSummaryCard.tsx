@@ -79,6 +79,7 @@ export function ArtifactSummaryCard({ card, sectionId }: ArtifactSummaryCardProp
     confidence &&
     (confidence.evidence_backed > 0 ||
       confidence.analogical > 0 ||
+      (confidence.inferred ?? 0) > 0 ||
       confidence.reasoning > 0 ||
       confidence.gaps > 0);
 
@@ -117,7 +118,8 @@ export function ArtifactSummaryCard({ card, sectionId }: ArtifactSummaryCardProp
       {showConfidence && confidence && (
         <p className="mt-3 text-[10px] text-[var(--color-text-muted)]">
           Evidence: {confidence.evidence_backed} backed · {confidence.analogical}{" "}
-          analogical · {confidence.reasoning} reasoning · {confidence.gaps} gaps
+          analogical · {confidence.inferred ?? 0} inferred · {confidence.reasoning}{" "}
+          reasoning · {confidence.gaps} gaps
         </p>
       )}
     </div>

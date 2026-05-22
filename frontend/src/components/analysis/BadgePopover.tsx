@@ -34,6 +34,7 @@ const FALLBACK_ANCHOR: { getBoundingClientRect: () => DOMRect } = {
 const TYPE_LABELS: Record<string, string> = {
   evidence: "Model's explanation",
   analogical: "Model's explanation",
+  inferred: "Evidence-informed inference",
   reasoning: "Reasoning chain",
   gap: "Evidence gap",
   subgroup: "Sub-group finding",
@@ -166,8 +167,20 @@ function findChunksBySourceName(
 }
 
 function extractQuoteProbes(detail: string): string[] {
-  const quoted = [...detail.matchAll(/"([^"]{24,})"/g)].map((match) => match[1]);
-  if (quoted.length > 0) return quoted;
+  const quotePattern = /[""\u201c]([^""\u201d]{24,}?)[""\u201d]/g;
+  const quoted = [...detail.matchAll(quotePattern)].map((match) => match[1]);
+
+  if (quoted.length > 0) {
+    const fragments: string[] = [];
+    for (const q of quoted) {
+      for (const frag of q.split(/[…]+/)) {
+        const trimmed = frag.trim();
+        if (trimmed.length >= 20) fragments.push(trimmed);
+      }
+    }
+    if (fragments.length > 0) return fragments;
+    return quoted;
+  }
 
   const normDetail = normaliseText(detail);
   if (normDetail.length >= 40) return [normDetail];
@@ -186,11 +199,10 @@ function findChunksByQuote(
 
   for (const probe of probes) {
     const normProbe = normaliseText(probe);
-    const minLen = Math.min(40, normProbe.length);
-    const snippet = normProbe.slice(0, Math.max(minLen, 40));
+    if (normProbe.length < 15) continue;
 
     for (const chunk of collectAllChunks(searches)) {
-      if (normaliseText(chunk.text).includes(snippet)) {
+      if (normaliseText(chunk.text).includes(normProbe)) {
         matches.push(chunk);
       }
     }
@@ -222,15 +234,15 @@ function scoreChunkByQuote(
 
   for (const probe of probes) {
     const normProbe = normaliseText(probe);
-    const minLen = Math.min(40, normProbe.length);
-    const snippet = normProbe.slice(0, Math.max(minLen, 40));
-    const normIdx = normChunk.indexOf(snippet);
-    if (normIdx >= 0 && snippet.length > bestLen) {
-      bestLen = snippet.length;
+    if (normProbe.length < 15) continue;
+    const normIdx = normChunk.indexOf(normProbe);
+    if (normIdx >= 0 && normProbe.length > bestLen) {
+      bestLen = normProbe.length;
       const lowerChunk = chunk.text.toLowerCase();
-      const rawMinLen = Math.min(40, probe.length);
-      const rawProbeStart = probe.toLowerCase().slice(0, Math.max(rawMinLen, 40));
-      const rawIdx = lowerChunk.indexOf(rawProbeStart, Math.max(0, normIdx - 50));
+      const rawIdx = lowerChunk.indexOf(
+        probe.toLowerCase(),
+        Math.max(0, normIdx - 50),
+      );
       bestIndex = rawIdx >= 0 ? rawIdx : normIdx;
     }
   }
@@ -563,6 +575,7 @@ export function BadgePopoverManager({
   sectionType = "subgroup",
   confirmedSubGroups,
   onNavigateToSection,
+  onOpenEvidenceDrawer,
   isStreaming = false,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -571,6 +584,7 @@ export function BadgePopoverManager({
   sectionType?: "subgroup" | "synthesis";
   confirmedSubGroups?: SubGroup[];
   onNavigateToSection?: (sectionId: string) => void;
+  onOpenEvidenceDrawer?: (targetSourceName?: string) => void;
   isStreaming?: boolean;
 }) {
   const [popover, setPopover] = useState<PopoverState | null>(null);
@@ -644,7 +658,7 @@ export function BadgePopoverManager({
 
   const evidenceDisplay = useMemo(() => {
     if (!popover || !rawEvidence) return null;
-    if (popover.badgeType !== "evidence" && popover.badgeType !== "analogical") {
+    if (popover.badgeType !== "evidence" && popover.badgeType !== "analogical" && popover.badgeType !== "inferred") {
       return null;
     }
     return resolveEvidenceDisplay(popover.sourceLabel, popover.detail, rawEvidence);
@@ -655,7 +669,7 @@ export function BadgePopoverManager({
   const typeLabel = TYPE_LABELS[popover.badgeType] ?? "Detail";
   const showRawEvidence =
     sectionType === "subgroup" &&
-    (popover.badgeType === "evidence" || popover.badgeType === "analogical");
+    (popover.badgeType === "evidence" || popover.badgeType === "analogical" || popover.badgeType === "inferred");
 
   const showSynthesisPopover =
     sectionType === "synthesis" &&
@@ -696,6 +710,15 @@ export function BadgePopoverManager({
             )}
             {showRawEvidence && evidenceDisplay && (
               <RawEvidenceSection display={evidenceDisplay} />
+            )}
+            {showRawEvidence && onOpenEvidenceDrawer && (
+              <button
+                type="button"
+                onClick={() => onOpenEvidenceDrawer(popover.sourceLabel)}
+                className="mt-2 block text-left text-[11px] font-medium text-[var(--color-accent)] underline-offset-2 hover:underline"
+              >
+                View in evidence base →
+              </button>
             )}
           </div>
           <Popover.Arrow className="fill-[var(--color-surface)] stroke-[var(--color-border)]" />

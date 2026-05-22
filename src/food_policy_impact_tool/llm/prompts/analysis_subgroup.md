@@ -18,7 +18,7 @@ Apply four analytical lenses throughout your analysis. Do NOT name these framewo
 
 You have access to a `search_evidence` tool that searches a curated evidence base of qualitative research on food environments and lived experience in the UK. **Use it actively** — search for evidence on multiple dimensions relevant to this sub-group.
 
-**Every analytical claim must be tagged** with one of four grounding levels, **immediately followed by a `<badge_detail>` block** containing the supporting detail. The `<badge_detail>` block is hidden from the main text and shown on demand — it must contain enough context for the analyst to evaluate the claim's grounding without reading the full source.
+**Every analytical claim must be tagged** with one of five grounding levels, **immediately followed by a `<badge_detail>` block** containing the supporting detail. The `<badge_detail>` block is hidden from the main text and shown on demand — it must contain enough context for the analyst to evaluate the claim's grounding without reading the full source.
 
 - **[Evidence: Source Name, Year]** — A study in the evidence base examined this population type and this type of intervention/context. Cite the specific source by name and year. The `<badge_detail>` must include the relevant excerpt or passage from the source that supports the claim — not just the source name.
 
@@ -28,7 +28,11 @@ You have access to a `search_evidence` tool that searches a curated evidence bas
 
   Example: `...similar transport barriers likely apply in urban food deserts [Analogical: Rural Food Access Study, 2019]<badge_detail>"Pensioners without car access reported travelling 45+ minutes by bus to reach a supermarket with affordable fresh produce." This study examined rural pensioners, not urban low-income families — the transport constraint is comparable but the density of alternative retail options differs significantly.</badge_detail>`
 
-- **[Reasoning]** — No directly relevant evidence in the base; reasoning from the sub-group's material constraints and the policy's mechanism. The `<badge_detail>` must include the specific material constraints being reasoned from and the logical steps connecting them to the claim.
+- **[Inferred: Source Name, Year]** — A claim that reasons forward from retrieved evidence. The source provides a factual basis, but the specific claim is your inference — not something the source directly states. Use this when evidence informs the claim but does not directly support it. The `<badge_detail>` must include: (a) the relevant excerpt from the source, and (b) the inferential step — what you are inferring and why.
+
+  Example: `...price caps would disproportionately benefit this group [Inferred: Corner Shop Study, 2022]<badge_detail>"67% of participants reported shopping at their nearest convenience store at least 3 times per week due to limited transport options" (p. 26). Inference: if price caps apply at convenience stores, this high-frequency reliance means the cumulative savings would be proportionally larger for this sub-group than for those making weekly supermarket trips.</badge_detail>`
+
+- **[Reasoning]** — No relevant evidence was found or used; reasoning purely from the sub-group's defined material constraints and the policy's mechanism. The `<badge_detail>` must include the specific material constraints being reasoned from and the logical steps connecting them to the claim. Do not reference evidence sources, page numbers, or quotes — if your reasoning draws on a specific passage, use `[Inferred]` instead.
 
   Example: `...price caps on essentials would disproportionately benefit this group [Reasoning]<badge_detail>This sub-group spends a higher proportion of income on food (modifier: severe financial pressure) and shops more frequently at convenience stores (modifier: limited transport). Price caps at convenience stores would therefore represent a larger relative saving for this group than for those shopping at supermarkets.</badge_detail>`
 
@@ -42,9 +46,10 @@ Place grounding tags **inline after each claim**, not at the end of sections. Ev
 
 - For `[Evidence]` badges: quote verbatim or near-verbatim from the chunks returned by the `search_evidence` tool. Do not paraphrase and present as a direct quote. Do not cite sources you did not receive from the tool. Do not attribute findings to a source unless that source appeared in your search results.
 - For `[Analogical]` badges: reference a specific chunk you received from the tool. Explain what makes it analogical rather than direct — what context differs, what transfers. Do not invent analogies from general knowledge.
-- For `[Reasoning]` badges: only reference material constraints and sub-group features that are defined in the sub-group specification above. Do not invent constraints.
+- For `[Inferred]` badges: reference a specific chunk you received from the tool. Clearly separate the quoted evidence from the inferential step — the reader must be able to distinguish what the source says from what you are inferring. If a claim draws on evidence but goes beyond what the source directly states, use `[Inferred]`, not `[Evidence]` or `[Reasoning]`.
+- For `[Reasoning]` badges: only reference material constraints and sub-group features that are defined in the sub-group specification above. Do not invent constraints. Do not include page numbers, source references, or direct quotes from retrieved evidence — if your reasoning draws on a specific passage, use `[Inferred]` instead.
 - For `[Gap]` badges: only reference search queries you actually executed via the `search_evidence` tool. Do not invent queries you did not run.
-- If you want to make a claim based on general knowledge rather than retrieved evidence, tag it as `[Reasoning]`, never as `[Evidence]` or `[Analogical]`.
+- If you want to make a claim based on general knowledge rather than retrieved evidence, tag it as `[Reasoning]`, never as `[Evidence]`, `[Analogical]`, or `[Inferred]`.
 
 ### Search strategy
 
@@ -127,7 +132,7 @@ Example: `<step_summary>Price caps deliver outsized savings but convenience stor
 After the `<step_summary>`, append a `<summary_card>` JSON block containing:
 - `impact_direction`: one sentence describing the overall impact (positive/negative/mixed and on what dimensions)
 - `key_findings`: array of at least 3 strings, each a single-sentence key finding from your analysis. Frame these as implications — punchy and scannable, not academic observations
-- `evidence_confidence`: object with integer counts of `evidence_backed`, `analogical`, `reasoning`, and `gaps` claims in your analysis (count each grounding badge type you used)
+- `evidence_confidence`: object with integer counts of `evidence_backed`, `analogical`, `inferred`, `reasoning`, and `gaps` claims in your analysis (count each grounding badge type you used)
 
 Example:
 ```json
@@ -142,6 +147,7 @@ Example:
   "evidence_confidence": {
     "evidence_backed": 5,
     "analogical": 2,
+    "inferred": 3,
     "reasoning": 4,
     "gaps": 2
   }
@@ -154,7 +160,7 @@ This summary card appears at the top of the artifact in the reading panel — ma
 ## What you must NOT do
 
 - Do not frame your analysis as representing the views of any community or group
-- Do not make confident claims without evidence — use [Reasoning] or [Gap] tags
+- Do not make confident claims without evidence — use [Inferred], [Reasoning], or [Gap] tags
 - Do not treat this analysis as definitive — it is a first-pass analytical aid
 - Do not reason from stereotypes — reason from the material constraints described in the modifier features
 - Do not include the full analysis of other sub-groups — focus solely on this one

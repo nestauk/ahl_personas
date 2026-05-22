@@ -1,8 +1,9 @@
 const BADGE_DETAIL_REGEX =
-  /\[(?:(Evidence|Analogical|Sub-group|Cross-cutting):\s*([^\]]+)|(SG\d+)(?::\s*([^\]]*))?|(Reasoning|Gap))\]<badge_detail>([\s\S]*?)<\/badge_detail>/g;
+  /\[(?:(Evidence|Analogical|Inferred|Sub-group|Cross-cutting):\s*([^\]]+)|(SG\d+)(?::\s*([^\]]*))?|(Reasoning|Gap))\]<badge_detail>([\s\S]*?)<\/badge_detail>/g;
 
 const EVIDENCE_TAG_REGEX = /\[Evidence:\s*([^\]]+)\]/g;
 const ANALOGICAL_TAG_REGEX = /\[Analogical:\s*([^\]]+)\]/g;
+const INFERRED_TAG_REGEX = /\[Inferred:\s*([^\]]+)\]/g;
 const SUBGROUP_TAG_REGEX = /\[Sub-group:\s*([^\]]+)\]/g;
 const SG_TAG_REGEX = /\[(SG\d+)(?::\s*([^\]]*))?\]/g;
 const CROSSCUTTING_TAG_REGEX = /\[Cross-cutting:\s*([^\]]+)\]/g;
@@ -107,9 +108,11 @@ export function renderGroundingBadges(content: string): string {
       const trimmedDetail = (detail as string).trim();
       const encoded = escapeAttr(trimmedDetail);
 
-      if (typedLabel === "Evidence" || typedLabel === "Analogical") {
+      if (typedLabel === "Evidence" || typedLabel === "Analogical" || typedLabel === "Inferred") {
         const badgeClass =
-          typedLabel === "Evidence" ? "badge-evidence" : "badge-analogical";
+          typedLabel === "Evidence" ? "badge-evidence"
+          : typedLabel === "Analogical" ? "badge-analogical"
+          : "badge-inferred";
         const label = `${typedLabel}: ${sourceRef}`;
         return `<span class="${badgeClass}" data-badge-detail="${encoded}" data-badge-type="${typedLabel.toLowerCase()}">${label}</span>`;
       }
@@ -138,6 +141,10 @@ export function renderGroundingBadges(content: string): string {
     .replace(
       ANALOGICAL_TAG_REGEX,
       '<span class="badge-analogical">Analogical: $1</span>',
+    )
+    .replace(
+      INFERRED_TAG_REGEX,
+      '<span class="badge-inferred">Inferred: $1</span>',
     )
     .replace(SUBGROUP_TAG_REGEX, () =>
       '<span class="badge-evidence" data-badge-type="subgroup">Sub-group</span>',

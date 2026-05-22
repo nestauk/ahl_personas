@@ -125,6 +125,7 @@ body {
 /* Evidence grounding badges */
 .badge-evidence,
 .badge-analogical,
+.badge-inferred,
 .badge-crosscutting,
 .badge-reasoning,
 .badge-gap,
@@ -151,6 +152,12 @@ body {
   background-color: #fef3c7;
   color: #92400e;
   border: 1px solid #fde68a;
+}
+
+.badge-inferred {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
 }
 
 .badge-reasoning {
@@ -300,4 +307,32 @@ body {
 
 .synthesis-substep .stepper-connector {
   left: 23px;
+}
+
+/* Evidence drawer */
+.evidence-drawer-backdrop {
+  background-color: rgba(0, 0, 0, 0.15);
+  animation: evidence-backdrop-in 0.2s ease-out;
+}
+
+@keyframes evidence-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.evidence-drawer {
+  animation: evidence-drawer-slide-in 0.25s ease-out;
+}
+
+@keyframes evidence-drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }

@@ -1402,3 +1402,48 @@ Changed the evidence badge popover to show a **single, best-matched chunk** with
 ### Files modified
 
 - `frontend/src/components/analysis/BadgePopover.tsx` — added `scoreChunkByQuote`, `pickBestChunk`, `extractDisplayWindow`; modified `EvidenceDisplay` interface (added `matchIndex`), `resolveEvidenceDisplay` (single chunk via `pickBestChunk`), `ChunkDisplay` (accepts `matchIndex`, uses `extractDisplayWindow`), `RawEvidenceSection` (passes `matchIndex` through)
+
+---
+
+## 2026-05-22 — New `[Inferred]` grounding badge type + quote-matching improvements
+
+### Problem
+
+1. **Reasoning badges citing evidence**: `[Reasoning]` badges were including page numbers and source references from retrieved evidence chunks, blurring the distinction between the model's own inference and evidence-grounded claims. Many claims tagged as `[Reasoning]` were actually evidence-informed inferences — the model read a passage and reasoned forward from it.
+
+2. **Analogical badge quote matching**: `extractQuoteProbes` only matched straight double quotes (`"..."`), missing curly/smart quotes (`\u201c...\u201d`) commonly used by the LLM. When the regex failed, it fell back to using the entire badge detail (including the "Analogical: ..." explanation) as a search probe, which never matched any chunk. Additionally, the LLM frequently truncates quotes with ellipsis (`…`), but the matching treated the ellipsis-containing string as a single probe that wouldn't match the full original text.
+
+### What was done
+
+#### 1. New `[Inferred: Source Name, Year]` badge type
+
+Introduced a fifth grounding level for claims where the model reasons forward from retrieved evidence. The source provides a factual basis but the specific claim is the model's inference — distinct from `[Evidence]` (direct citation), `[Analogical]` (related context), `[Reasoning]` (pure inference from constraints), and `[Gap]` (cannot determine).
+
+The badge detail must include both the relevant excerpt from the source and the inferential step, clearly separated. The popover shows both the reasoning chain and the supporting evidence chunk from tool retrieval.
+
+| Layer | Change |
+|-------|--------|
+| Prompt | Added `[Inferred]` definition, example, integrity rules; updated `[Reasoning]` to be pure-inference only; added `inferred` to summary card JSON schema |
+| Badge regex | Added `Inferred` to `BADGE_DETAIL_REGEX` and `INFERRED_TAG_REGEX`; handled in `renderGroundingBadges` |
+| CSS | Added `.badge-inferred` (blue: `#dbeafe`/`#1e40af`) sitting between Evidence (teal) and Reasoning (grey) |
+| Popover | Added `inferred` to `TYPE_LABELS` ("Evidence-informed inference"); gates evidence chunk display for inferred badges |
+| Types | Added `inferred: number` to `evidence_confidence` in `SummaryCard` |
+| Summary card | Displays inferred count between analogical and reasoning |
+
+#### 2. Improved quote probe extraction for analogical badges
+
+- `extractQuoteProbes` now matches curly/smart quotes (`\u201c...\u201d`) in addition to straight quotes
+- Quotes containing ellipsis (`…`) are split into fragments, each becoming its own probe — any single fragment matching is sufficient to find the right chunk
+- `scoreChunkByQuote` and `findChunksByQuote` match the full normalised probe rather than always truncating to 40 characters
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md` — new `[Inferred]` badge definition and example, updated `[Reasoning]` rules, updated integrity rules, updated summary card JSON schema
+
+**Frontend:**
+- `frontend/src/lib/grounding-badges.ts` — `Inferred` in `BADGE_DETAIL_REGEX`, `INFERRED_TAG_REGEX`, rendering in `renderGroundingBadges`
+- `frontend/src/app/globals.css` — `.badge-inferred` style
+- `frontend/src/components/analysis/BadgePopover.tsx` — `inferred` in `TYPE_LABELS`, evidence display conditions; improved `extractQuoteProbes` (curly quotes, ellipsis splitting), simplified `scoreChunkByQuote` and `findChunksByQuote`
+- `frontend/src/lib/types.ts` — `inferred: number` in `evidence_confidence`
+- `frontend/src/components/analysis/ArtifactSummaryCard.tsx` — inferred count in confidence display

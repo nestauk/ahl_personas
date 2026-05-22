@@ -86,6 +86,7 @@ export interface SummaryCard {
   evidence_confidence?: {
     evidence_backed: number;
     analogical: number;
+    inferred: number;
     reasoning: number;
     gaps: number;
   };
@@ -208,4 +209,33 @@ export function createEmptySpecMetadata(): SpecMetadata {
 
 export function createEmptyAnalysisProgress(): AnalysisProgress {
   return { steps: [], isComplete: false };
+}
+
+// --- Evidence base source metadata ---
+
+export interface EvidenceSource {
+  source_name: string;
+  pdf_filename: string;
+  year: string | null;
+  link: string | null;
+  participants: string | null;
+  objective: string | null;
+  key_insights: string | null;
+  methodology: string | null;
+  data_type: string | null;
+}
+
+export interface EvidenceSourcesResponse {
+  sources: EvidenceSource[];
+  total: number;
+}
+
+export interface SourceCitationSubgroup {
+  sectionId: string;
+  name: string;
+}
+
+export interface SourceCitation {
+  count: number;
+  subgroups: SourceCitationSubgroup[];
 }
