@@ -684,6 +684,7 @@ export function SpecificationSidebar({
                             : sectionId) as SynthesisSectionId
                         ]
                       : null;
+                    const synthesisSummary = stepSummaries?.get(sectionId);
                     return (
                       <StepEntry
                         key={sectionId}
@@ -693,6 +694,13 @@ export function SpecificationSidebar({
                         isLast={i === SYNTHESIS_SECTION_IDS.length - 1}
                         onClick={() => onSelectSection?.(sectionId)}
                         completedVariant="synthesis"
+                        activeContent={
+                          subStatus === "complete" && synthesisSummary ? (
+                            <p className="mt-1 text-[10px] leading-snug text-[var(--color-text-muted)]">
+                              {synthesisSummary}
+                            </p>
+                          ) : null
+                        }
                       />
                     );
                   })}

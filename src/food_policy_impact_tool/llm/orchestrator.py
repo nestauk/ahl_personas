@@ -117,6 +117,7 @@ class _SynthesisSectionParser:
             section: "" for section in _VALID_SYNTHESIS_SECTIONS
         }
         self._pending_summary_cards: list[tuple[str, dict[str, Any]]] = []
+        self._pending_step_summaries: list[tuple[str, str]] = []
 
     def drain_section_transitions(self) -> list[str]:
         """Return section IDs that were entered since the last drain, then clear."""
@@ -129,12 +130,21 @@ class _SynthesisSectionParser:
             return
         if section != self._current:
             prev = self._current
-            card = self.finalize_section_card(prev)
-            if card:
-                self._pending_summary_cards.append((prev, card))
+            self._finalize_section(prev)
             self._pending_section_transitions.append(section)
         self._current = section
         self._sections_seen.add(section)
+
+    def _finalize_section(self, section_id: str) -> None:
+        """Extract step summary and summary card from accumulated section content."""
+        buf = self._section_accum.get(section_id, "")
+        summary = _extract_step_summary(buf)
+        if summary:
+            self._section_accum[section_id] = _strip_step_summary(buf)
+            self._pending_step_summaries.append((section_id, summary))
+        card = self.finalize_section_card(section_id)
+        if card:
+            self._pending_summary_cards.append((section_id, card))
 
     def _record_section_content(self, section_id: str, content: str) -> None:
         if content:
@@ -172,9 +182,7 @@ class _SynthesisSectionParser:
                 sorted(self._sections_seen),
             )
         for section_id in _SYNTHESIS_SECTION_ORDER:
-            card = self.finalize_section_card(section_id)
-            if card:
-                self._pending_summary_cards.append((section_id, card))
+            self._finalize_section(section_id)
         return results
 
     def _emit_line(self, line: str) -> list[tuple[str, str]]:
@@ -201,6 +209,12 @@ class _SynthesisSectionParser:
         if card:
             self._section_accum[section_id] = _strip_summary_card(buf)
         return card
+
+    def drain_pending_step_summaries(self) -> list[tuple[str, str]]:
+        """Return and clear step summaries queued during section finalisation."""
+        pending = self._pending_step_summaries
+        self._pending_step_summaries = []
+        return pending
 
     def drain_pending_summary_cards(self) -> list[tuple[str, dict[str, Any]]]:
         """Return and clear summary cards queued during section finalisation."""
@@ -1084,6 +1098,12 @@ async def stream_synthesis_only(
                     if transition not in synthesis_sections_announced:
                         yield ("text", _SYNTHESIS_SECTION_PROGRESS[transition])
                         synthesis_sections_announced.add(transition)
+                for section_id, summary in parser.drain_pending_step_summaries():
+                    yield ("data", {
+                        "type": "step_summary",
+                        "section_id": section_id,
+                        "summary": summary,
+                    })
                 for section_id, card in parser.drain_pending_summary_cards():
                     yield ("data", {
                         "type": "summary_card",
@@ -1103,6 +1123,12 @@ async def stream_synthesis_only(
             if transition not in synthesis_sections_announced:
                 yield ("text", _SYNTHESIS_SECTION_PROGRESS[transition])
                 synthesis_sections_announced.add(transition)
+        for section_id, summary in parser.drain_pending_step_summaries():
+            yield ("data", {
+                "type": "step_summary",
+                "section_id": section_id,
+                "summary": summary,
+            })
         for section_id, card in parser.drain_pending_summary_cards():
             yield ("data", {
                 "type": "summary_card",
@@ -1115,6 +1141,12 @@ async def stream_synthesis_only(
                     "section": section_id,
                     "delta": content_delta,
                 })
+        for section_id, summary in parser.drain_pending_step_summaries():
+            yield ("data", {
+                "type": "step_summary",
+                "section_id": section_id,
+                "summary": summary,
+            })
         for section_id, card in parser.drain_pending_summary_cards():
             yield ("data", {
                 "type": "summary_card",

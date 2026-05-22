@@ -114,9 +114,18 @@ Group under thematic `###` headings. Each recommendation:
 
 ---
 
+## Step summaries (required)
+
+At the end of **each** of the three sections — after that section's content and **before** the `<summary_card>` block — append a one-sentence sidebar summary in a `<step_summary>` tag (≤ 20 words). This sentence should capture the single most important takeaway for that section.
+
+Example:
+```
+<step_summary>Policy likely widens dietary inequality despite aggregate health gains across most sub-groups.</step_summary>
+```
+
 ## Summary cards (required)
 
-At the end of **each** of the three sections — after that section's content and **before** the next `<!-- SECTION: ... -->` marker — append a `<summary_card>` JSON block appropriate to that section:
+At the end of **each** of the three sections — after the `<step_summary>` and **before** the next `<!-- SECTION: ... -->` marker — append a `<summary_card>` JSON block appropriate to that section:
 
 **Equity assessment** (`equity_assessment`):
 - `summary`: 2–3 sentences on who benefits most/least and overall distributional picture
