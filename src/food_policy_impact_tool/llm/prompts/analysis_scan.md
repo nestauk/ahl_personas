@@ -196,7 +196,7 @@ The category headings must be:
 
 ### Part 2 — Proposed Sub-groups
 
-After the relevance assessment, present 4–6 proposed sub-groups. Use numbered headings with the sub-group name — do NOT use internal IDs like `sg_1` in the prose output. Format each as:
+After the relevance assessment, present 4–6 proposed sub-groups. Use `####` numbered headings with the sub-group name. Format **exactly** as shown:
 
 #### 1. Urban deprived + Financially strained + Family with children
 
@@ -204,7 +204,17 @@ After the relevance assessment, present 4–6 proposed sub-groups. Use numbered 
 
 **Rationale:** 2–3 sentences explaining why this sub-group was selected and what differential impact you expect.
 
-Continue with `#### 2.`, `#### 3.`, etc. The `sg_1`, `sg_2` identifiers are only for the JSON block in Part 3 — never use them in the readable output.
+**Expected differential impact:** One sentence on likely benefit or disadvantage.
+
+Continue with `#### 2.`, `#### 3.`, etc.
+
+**Strict formatting rules for Part 2 prose:**
+- Use ONLY the field labels shown above: `**Modifiers:**`, `**Rationale:**`, `**Expected differential impact:**`
+- List modifiers as a semicolon-separated list of human-readable names (e.g. "Financially strained; Urban deprived; Family with children") — NO categories, NO parenthetical annotations
+- NEVER include JSON field names in prose: no `category (...)`, no `household_financial`, no `geography`, no `relevance_drivers`, no `(categorical: ...)`
+- NEVER use nested numbered or bulleted sub-lists within a sub-group entry — each field is a single bold label followed by inline text on the same line
+- For categorical sub-groups, name the group descriptively (e.g. "Non-mainstream dietary traditions") and list affected modifiers in the **Modifiers** field as plain names separated by semicolons
+- The `sg_1`, `sg_2` identifiers and `relevance_drivers` array are ONLY for the JSON block in Part 3 — never surface them in readable output
 
 ### Part 3 — Structured output
 
@@ -279,7 +289,8 @@ Rules for the JSON:
 - Use **bold lead-ins on bullet points**: `- **Financial impact**: The cap reduces...` not `- The cap reduces the financial...`
 - Use **horizontal rules** (`---`) between major sections when a heading alone isn't enough visual break.
 - **Never** produce a paragraph longer than 5 sentences. Break it up or use bullets.
-- **Never** use internal identifiers like `sg_1`, `sg_2` in the readable output. These are only for the JSON block. Use numbered headings (1., 2., 3.) or sub-group names in the prose.
+- **Never** use internal identifiers, JSON field names, or snake_case variable names in the readable output. This means no `sg_1`, no `category (household_financial)`, no `relevance_drivers`, no `(categorical: ...)`. These belong only in the Part 3 JSON block.
+- **Never** use deeply nested lists (numbered sub-lists inside numbered lists). Keep the structure flat: headings → bold labels → inline text.
 
 ## Summary card (required)
 

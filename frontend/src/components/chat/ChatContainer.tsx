@@ -155,6 +155,9 @@ export function ChatContainer() {
   const streamingSectionRef = useRef(streamingSection);
   streamingSectionRef.current = streamingSection;
 
+  const activeStepPhaseRef = useRef(activeStepPhase);
+  activeStepPhaseRef.current = activeStepPhase;
+
   const lastStreamedSectionRef = useRef<string | null>(null);
   const checkpointReachedRef = useRef(false);
 
@@ -171,6 +174,12 @@ export function ChatContainer() {
     if (streamingSectionRef.current === sectionId) return;
     streamingSectionRef.current = sectionId;
     setStreamingSection(sectionId);
+  }, []);
+
+  const setActiveStepPhaseIfChanged = useCallback((phase: ActiveStepPhase) => {
+    if (activeStepPhaseRef.current === phase) return;
+    activeStepPhaseRef.current = phase;
+    setActiveStepPhase(phase);
   }, []);
 
   const flushPendingDeltas = useCallback(() => {
@@ -297,7 +306,7 @@ export function ChatContainer() {
         pending.set(sectionId, (pending.get(sectionId) ?? "") + delta);
 
         if (sectionId.startsWith("sg_")) {
-          setActiveStepPhase("writing");
+          setActiveStepPhaseIfChanged("writing");
         }
 
         if (isSynthesisSection(sectionId)) {
@@ -363,7 +372,7 @@ export function ChatContainer() {
               return next;
             });
             setStreamingSectionIfChanged(sectionId);
-            setActiveStepPhase(null);
+            setActiveStepPhaseIfChanged(null);
             if (activeSectionRef.current === null) {
               setActiveSectionIfChanged(sectionId);
             }
@@ -371,12 +380,16 @@ export function ChatContainer() {
         }
 
         if (status === "complete" || status === "error") {
-          flushPendingDeltas();
+          if (flushRafRef.current !== null) {
+            cancelAnimationFrame(flushRafRef.current);
+            flushRafRef.current = null;
+          }
+          flushRafRef.current = requestAnimationFrame(flushPendingDeltas);
           lastStreamedSectionRef.current = streamingSectionRef.current;
           setStreamingSectionIfChanged(null);
           setActiveEvidenceSearch(null);
           if (step === "subgroup") {
-            setActiveStepPhase(null);
+            setActiveStepPhaseIfChanged(null);
           }
         }
 
@@ -419,7 +432,7 @@ export function ChatContainer() {
       if (eventType === "evidence_search") {
         const query = item.query as string;
         setActiveEvidenceSearch((prev) => (prev === query ? prev : query));
-        setActiveStepPhase("searching");
+        setActiveStepPhaseIfChanged("searching");
       }
 
       if (eventType === "evidence_search_complete") {
@@ -528,7 +541,7 @@ export function ChatContainer() {
     }
     lastProcessedDataIdx.current = data.length - 1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, data?.length, flushPendingDeltas, setActiveSectionIfChanged, setStreamingSectionIfChanged, setMessages]);
+  }, [data, data?.length, flushPendingDeltas, setActiveSectionIfChanged, setStreamingSectionIfChanged, setActiveStepPhaseIfChanged, setMessages]);
 
   useEffect(() => {
     if (!initialCache) return;
