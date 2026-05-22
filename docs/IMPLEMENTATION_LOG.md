@@ -834,3 +834,229 @@ New `stream_synthesis_only()` function handles synthesis as a standalone call, r
 - No persistence of analyses across sessions
 - No authentication or user management
 - No tests
+
+---
+
+## 2026-05-22 — Trust and Visibility Improvements
+
+### What was done
+
+Three features to increase the analyst's ability to understand, inspect, and trust the tool's outputs:
+
+1. **Interactive grounding badges with detail popovers** — every grounding tag (`[Evidence]`, `[Analogical]`, `[Reasoning]`, `[Gap]`) now carries a structured `<badge_detail>` block with supporting context. Badges with detail are clickable, revealing the context in a Radix popover.
+
+2. **Evidence search transparency** — the sidebar now tracks individual evidence searches per sub-group step (query, result count, source names), viewable in an expandable list. Replaces the previous opaque "N evidence searches done" counter.
+
+3. **Chatbot progress messages** — the chat area now receives brief progress updates during the analysis chain ("Starting analysis for **[name]**…", "Completed **[name]**.", etc.) so the analyst has a conversational signal of what's happening.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Badge detail format | `<badge_detail>` XML-like block immediately after each grounding tag | Parsed by the same regex pipeline as the tags themselves. Invisible in rendered output — stripped during badge processing and stored as data attributes. Compatible with streaming (incomplete blocks stripped during active streams). |
+| Popover library | `@radix-ui/react-popover` | Accessible, handles positioning/collision automatically, small footprint. First external UI primitive in the project. |
+| Popover interaction model | Click to open, click elsewhere to close | Hover would fire too easily on dense analysis text. Click is intentional and works on touch. |
+| Per-step search tracking | `searches` array on `AnalysisStep` (replaces global `evidenceSearchCount`) | Enables per-sub-group search inspection. Source names are deduplicated server-side before emission. |
+| Chat progress messages | `("text", ...)` yields within `stream_analysis_chain()` | No frontend changes needed — text parts already flow to the chat message. Messages are brief and use markdown bold for sub-group names. |
+| Session cache | Version bumped to 3 | `evidenceSearchCount` removed from cache interface; search records now live within `analysisProgress.steps[].searches`. |
+
+### Badge detail requirements per type
+
+The prompt (`analysis_subgroup.md`) now specifies exactly what each `<badge_detail>` must contain:
+
+- **Evidence**: the relevant excerpt or passage from the source that supports the claim
+- **Analogical**: both the relevant excerpt AND why the evidence is analogical rather than direct (what's similar, what differs)
+- **Reasoning**: the specific material constraints being reasoned from and the logical steps connecting them to the claim
+- **Gap**: what search queries were attempted that failed to find relevant evidence, and what kind of evidence would fill the gap
+
+### Frontend rendering pipeline change
+
+```
+LLM output with [Tag]<badge_detail>...</badge_detail>
+  → stripStructuredBlocks (MessageBubble) / stripSubgroupBlocks (AnalysisSectionPanel)
+  → renderGroundingBadges():
+      Pass 1: BADGE_DETAIL_REGEX matches tag+detail pairs → <span data-badge-detail="..." data-badge-type="...">
+      Pass 2: remaining unmatched tags (no detail) → plain <span class="badge-*">
+  → react-markdown + rehype-raw
+  → BadgePopoverManager: click listener on [data-badge-detail] spans → Radix Popover portal
+```
+
+### Files created
+
+**Frontend (1 new component):**
+- `frontend/src/components/analysis/BadgePopover.tsx` — `BadgePopoverManager` component using Radix popover, attaches click handlers to `[data-badge-detail]` spans via event delegation
+
+**Dependencies:**
+- `@radix-ui/react-popover` added to `frontend/package.json`
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/orchestrator.py` — chat progress text yields in `stream_analysis_chain()` (sub-group start, complete, error); `evidence_search_complete` event enriched with deduplicated `source_names` list
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md` — evidence grounding section rewritten with `<badge_detail>` requirement, explicit per-type content specifications, and worked examples for all four badge types
+
+**Frontend:**
+- `frontend/src/lib/grounding-badges.ts` — two-pass rendering: first pass matches `[Tag]<badge_detail>...</badge_detail>` pairs into spans with `data-badge-detail` and `data-badge-type` attributes; second pass handles plain tags without detail (backwards-compatible)
+- `frontend/src/lib/types.ts` — added `EvidenceSearchRecord` interface; extended `AnalysisStep` with optional `searches` array
+- `frontend/src/lib/session-cache.ts` — removed `evidenceSearchCount` from `CachedSession`; bumped `CACHE_VERSION` to 3
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — added `proseRef` for `BadgePopoverManager`, extended streaming stripping to handle incomplete `<badge_detail>` blocks
+- `frontend/src/components/chat/ChatContainer.tsx` — replaced `evidenceSearchCount` state with per-step search record tracking via `analysisProgress`; `evidence_search_complete` handler now creates `EvidenceSearchRecord` and appends to active step
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — removed `evidenceSearchCount` prop; added `SearchList` component (expandable per-step search history with query, result count, source names); sub-group step entries show search records when active (below live search indicator) and when complete (expandable list + subtitle)
+- `frontend/src/app/globals.css` — added `[data-badge-detail]` cursor/hover styles, popover entrance animation
+
+### What has NOT been implemented yet
+
+- No evidence base browser (deferred — planned as slide-over drawer)
+- No badge-to-browser source linking (depends on evidence browser)
+- No additional sub-groups at the synthesis checkpoint (deferred)
+- No deliberation layer beyond what's in the provocations section
+- No multi-turn analysis refinement
+- No export of analysis outputs (PDF, Word)
+- No persistence of analyses across sessions
+- No authentication or user management
+- No tests
+
+---
+
+## 2026-05-22 — Hallucination Protection for Badge Details
+
+### What was done
+
+Two layers of protection against hallucination in badge detail popovers, with zero additional LLM calls or retrieval queries:
+
+**Layer 1: Reduce hallucination at the source**
+
+1. **Prompt hardening** — added "Evidence integrity rules" section to `analysis_subgroup.md` requiring verbatim quoting for Evidence badges, specific chunk references for Analogical, constraint-only reasoning for Reasoning, and executed-queries-only for Gap badges. General knowledge claims must use `[Reasoning]`, never `[Evidence]` or `[Analogical]`.
+
+2. **Quote anchoring in tool responses** — updated `_format_tool_evidence()` to use `[Chunk N]` headers with source name, year, and page number. No-results messages now echo the exact query string so the LLM can reference it accurately in `[Gap]` details.
+
+**Layer 2: Make hallucination detectable**
+
+3. **Raw evidence accumulation** — `_stream_subgroup_with_tools()` now stores raw chunk data (source name, year, text, page number) in a per-sub-group accumulator alongside its existing processing.
+
+4. **Evidence data event** — after each sub-group analysis completes, a `subgroup_evidence` data event is emitted containing all raw search records for that sub-group.
+
+5. **Frontend evidence storage** — new `RawEvidenceChunk`, `RawEvidenceSearch`, and `SubgroupEvidenceEvent` types. `ChatContainer` stores evidence keyed by section ID in a `Map<string, RawEvidenceSearch[]>`, persisted via session cache (version bumped to 4).
+
+6. **Enhanced badge popovers** — for Evidence and Analogical badges, the popover now shows a second section below the LLM's explanation with the actual retrieved chunk text, source name/year, and page number. Source matching uses substring/keyword overlap between the badge label and stored chunk source names. When no match is found, a warning is displayed: "This source was not found in the evidence retrieved for this analysis". Reasoning and Gap badges show only the LLM explanation (no raw evidence section).
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Evidence accumulation | Mutable list passed to `_stream_subgroup_with_tools()` via `raw_searches` parameter | Avoids changing the generator's yield protocol — caller reads the list after iteration. Data is already in memory, just kept rather than discarded. |
+| Evidence emission | Single `subgroup_evidence` data event per sub-group, after text streaming completes | Batches all searches into one event rather than emitting per-search. Reduces frontend event processing. |
+| Source matching | Bidirectional substring + keyword overlap (2+ matching words of 3+ chars) | Simple and sufficient — badge labels like "Sandwell study" match against full source names like "Understanding interactions with the food environment". No need for fuzzy matching. |
+| Popover chunk display | Max 2 chunks shown, text truncated at 400 chars | Keeps popovers scannable. Analyst can cross-reference with sidebar search records for full context. |
+| Hallucination warning | Shown only for Evidence/Analogical badges when source not found in raw evidence | Most direct signal — the LLM cited something it didn't receive from the tool. |
+| Cache version | Bumped to 4 | New `subgroupEvidence` field in `CachedSession`. |
+
+### Files modified
+
+**Backend:**
+- `src/food_policy_impact_tool/llm/prompts/analysis_subgroup.md` — added "Evidence integrity rules" section after the badge detail requirements
+- `src/food_policy_impact_tool/llm/orchestrator.py` — `_format_tool_evidence()` updated with `[Chunk N]` headers, page numbers, and query echo on no-results; `_stream_subgroup_with_tools()` accepts `raw_searches` accumulator; `stream_analysis_chain()` passes accumulator and emits `subgroup_evidence` data event
+
+**Frontend:**
+- `frontend/src/lib/types.ts` — added `RawEvidenceChunk`, `RawEvidenceSearch`, `SubgroupEvidenceEvent` interfaces; added `SubgroupEvidenceEvent` to `AnalysisDataEvent` union
+- `frontend/src/lib/session-cache.ts` — added `subgroupEvidence` field to `CachedSession`; added `hydrateSubgroupEvidence()` helper; updated `saveSession`/`debouncedSave` types; bumped `CACHE_VERSION` to 4
+- `frontend/src/components/chat/ChatContainer.tsx` — added `subgroupEvidence` state (Map); handles `subgroup_evidence` data event; includes in session save and new-session reset; passes to `AnalysisView`
+- `frontend/src/components/analysis/AnalysisView.tsx` — accepts and passes `subgroupEvidence` to `AnalysisSectionPanel`
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — accepts and passes `rawEvidence` to `BadgePopoverManager`
+- `frontend/src/components/analysis/BadgePopover.tsx` — added `RawEvidenceSection` component; `findMatchingChunks()` source matcher; popover now shows raw evidence for Evidence/Analogical badges with hallucination warning when source not found
+
+---
+
+## 2026-05-22 — Analysis UI Stability and Popover Refinements
+
+### What was done
+
+Follow-up fixes after the trust/visibility and hallucination-protection work:
+
+1. **Badge streaming freeze** — during sub-group analysis, text after the first `<badge_detail>` block stopped rendering until the section completed. Root cause: `stripIncompleteStructuredBlocks()` used a regex that stripped from the first `<badge_detail>` to end-of-string, removing closed blocks as well as incomplete ones. Fixed to only strip an *unclosed* trailing `<badge_detail>`.
+
+2. **Empty "Structured output" heading in scan artefact** — the relevance scan prompt asks the LLM to emit Part 3 ("Structured output") before the `<proposed_sub_groups>` block. That section is parsed for the sidebar and should not appear in the artefact panel. Added `stripProposedSubGroupsContent()` in `grounding-badges.ts` to remove both the XML block and the Part 3 / structured-output tail; applied in `AnalysisSectionPanel.tsx` for scan content.
+
+3. **Maximum update depth errors** — React infinite re-render loop after the population relevance assessment completed (and during dense sidebar population). Multiple contributing causes addressed:
+   - Removed `setActiveSection` / `setStreamingSection` calls from inside the `setAnalysisSections` updater in `flushPendingDeltas` (side effects in updaters trigger re-render loops).
+   - Added early return in the data-stream `useEffect` when `startIdx >= data.length` (no new events to process).
+   - Restricted `parseSpecFromData` to the `specifying` stage only.
+   - Added `setActiveSectionIfChanged` / `setStreamingSectionIfChanged` helpers that compare against refs before calling `setState`.
+   - Guarded `setSpecMeta`, `setProposedSubGroups`, `setConfirmedSubGroups`, and `setAnalysisProgress` with `jsonEqual` so identical payloads do not trigger updates.
+   - Memoised `chatBody` for `useChat` to avoid unnecessary hook churn.
+
+4. **Badge popover UX refinements** — clearer section labels ("Model's explanation" / "Evidence from tool retrieval"); stricter source-name matching (50% of distinctive words, minimum 3); quote-based fallback when citation name does not match but excerpt text overlaps retrieved chunks; stable `virtualAnchorRef` for Radix positioning; popover content-change effect guarded to avoid update loops; popover manager not mounted during active streaming.
+
+5. **Sub-group card heading deduplication** — removed redundant `subGroup.name` heading from `SubGroupCard` in the sidebar. Modifier badges and the "Category-level pattern" pill are the primary identifier; full name retained in `aria-label` and stepper labels.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Structured output stripping | Regex tail match on Part 3 heading variants + existing `<proposed_sub_groups>` regex | Handles both complete and in-progress scan streams without a separate parser. |
+| State update guards | Ref-based equality checks + `jsonEqual` for object state | Prevents cascading re-renders when stream events re-emit identical payloads. |
+| Delta batching side effects | Move section activation out of `setAnalysisSections` updater | React updaters must be pure; side-effect setters inside them caused the depth loop. |
+| Source matching threshold | 50% word overlap, min 3 distinctive words | Previous 2-word threshold produced false positives (wrong study shown as "retrieved evidence"). |
+| Sub-group card identity | Badges only, name in `aria-label` | Full generated name duplicated modifier pill text and cluttered the dense sidebar. |
+
+### Files modified
+
+**Frontend:**
+- `frontend/src/lib/grounding-badges.ts` — `stripProposedSubGroupsContent()`, fixed `stripIncompleteStructuredBlocks()` for unclosed-only badge_detail stripping; `STRUCTURED_OUTPUT_TAIL_REGEX` removes Part 3 heading tail
+- `frontend/src/components/analysis/AnalysisSectionPanel.tsx` — applies `stripProposedSubGroupsContent()` to scan artefact content; scroll debounced via `requestAnimationFrame`
+- `frontend/src/components/chat/ChatContainer.tsx` — update-depth fixes (`jsonEqual`, guarded setters, memoised `chatBody`, pure delta flush, early data-effect return)
+- `frontend/src/components/analysis/BadgePopover.tsx` — label renames, stricter `sourcesMatch()`, quote fallback matching, unmatched-source source list, stable anchor ref, streaming guard
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — removed duplicate `subGroup.name` heading from `SubGroupCard`
+
+---
+
+## 2026-05-22 — Sidebar Evidence Search Display Refinement
+
+### What was done
+
+Iterated on the evidence search transparency UI in the sidebar after user testing:
+
+1. **Removed duplicate search count** — completed sub-group steps showed "N evidence searches" twice: once as a `StepEntry` subtitle and again on the expandable `SearchList` toggle. Subtitle removed; the collapsible header is the sole count indicator.
+
+2. **Simplified search cards** — each card in the expanded list now shows only the search query (with search icon). Source title lists were removed — text was too small to be useful and duplicated information available in badge popovers.
+
+3. **Removed result counts** — cards initially showed "N results" plus source names, then query + count only. Counts dropped entirely because sub-group retrieval uses a hard `top_k=8` cap (`orchestrator.py`), so successful searches almost always show 8 regardless of query quality. Displaying the count implied meaningful variation where there was none. "No results found" is still shown when `numResults === 0` — the only case where the count conveys useful information.
+
+### Investigation: "UK" in search queries
+
+Observed that the LLM frequently prefixes queries with "UK" (e.g. "UK urban low-income families…"). Reviewed retrieval pipeline:
+
+- No geographic filter exists — hybrid search runs over the entire curated corpus.
+- The evidence base is already UK-only by curation (~15–20 primarily UK qualitative studies).
+- The sub-group prompt describes the tool as searching research "in the UK", which likely primes the model to add geographic scope tokens.
+- Tool definition examples and search-strategy guidance already omit "UK".
+
+**Conclusion:** "UK" is not technically necessary and may slightly dilute query specificity (redundant token in a UK-only index). Not implemented: explicit prompt guidance to omit "UK"/"United Kingdom" from queries. Deferred unless retrieval quality issues are observed.
+
+### Technical decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Search card content | Query only (+ "No results found" for zero hits) | Maximises scannability; avoids misleading result counts capped at 8. |
+| Duplicate count | Remove `StepEntry` subtitle, keep `SearchList` toggle label | Single source of truth for search count per step. |
+| Backend `numResults` | Retained in `EvidenceSearchRecord` and events | Still used internally for zero-result detection; not surfaced in sidebar UI. |
+| UK query guidance | Not added to prompt (deferred) | Low-risk redundancy rather than proven quality degradation; can add if needed. |
+
+### Files modified
+
+**Frontend:**
+- `frontend/src/components/specification/SpecificationSidebar.tsx` — `SearchList` simplified to query-only cards; removed completed-step subtitle duplicating search count
+
+### What has NOT been implemented yet
+
+- No prompt guidance to omit "UK" from evidence search queries (deferred)
+- No configurable or surfaced `top_k` limit in the UI
+- No evidence base browser (deferred — planned as slide-over drawer)
+- No badge-to-browser source linking (depends on evidence browser)
+- No additional sub-groups at the synthesis checkpoint (deferred)
+- No deliberation layer beyond what's in the provocations section
+- No multi-turn analysis refinement
+- No export of analysis outputs (PDF, Word)
+- No persistence of analyses across sessions
+- No authentication or user management
+- No tests

@@ -4,12 +4,13 @@ import type {
   AnalysisSection,
   ConversationStage,
   ProposedSubGroups,
+  RawEvidenceSearch,
   SpecMetadata,
   SubGroup,
 } from "./types";
 
 const STORAGE_KEY = "ahl-session";
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 4;
 
 export interface CachedSession {
   version: number;
@@ -21,17 +22,19 @@ export interface CachedSession {
   analysisProgress: AnalysisProgress;
   analysisSections: [string, AnalysisSection][];
   activeSection: string | null;
-  evidenceSearchCount: number;
+  subgroupEvidence: [string, RawEvidenceSearch[]][];
 }
 
-export function saveSession(state: Omit<CachedSession, "version" | "analysisSections"> & {
+export function saveSession(state: Omit<CachedSession, "version" | "analysisSections" | "subgroupEvidence"> & {
   analysisSections: Map<string, AnalysisSection>;
+  subgroupEvidence: Map<string, RawEvidenceSearch[]>;
 }): void {
   try {
     const serialisable: CachedSession = {
       ...state,
       version: CACHE_VERSION,
       analysisSections: Array.from(state.analysisSections.entries()),
+      subgroupEvidence: Array.from(state.subgroupEvidence.entries()),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(serialisable));
   } catch {
@@ -62,6 +65,12 @@ export function hydrateAnalysisSections(
   entries: [string, AnalysisSection][],
 ): Map<string, AnalysisSection> {
   return new Map(entries);
+}
+
+export function hydrateSubgroupEvidence(
+  entries: [string, RawEvidenceSearch[]][] | undefined,
+): Map<string, RawEvidenceSearch[]> {
+  return entries ? new Map(entries) : new Map();
 }
 
 /**
@@ -121,8 +130,9 @@ export function clearSession(): void {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function debouncedSave(
-  state: Omit<CachedSession, "version" | "analysisSections"> & {
+  state: Omit<CachedSession, "version" | "analysisSections" | "subgroupEvidence"> & {
     analysisSections: Map<string, AnalysisSection>;
+    subgroupEvidence: Map<string, RawEvidenceSearch[]>;
   },
   delayMs = 500,
 ): void {

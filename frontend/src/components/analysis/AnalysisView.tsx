@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Loader2 } from "lucide-react";
-import type { AnalysisSection } from "@/lib/types";
+import type { AnalysisSection, RawEvidenceSearch } from "@/lib/types";
 import { TAXONOMY_LABELS } from "@/lib/types";
 import { AnalysisSectionPanel } from "./AnalysisSectionPanel";
 
@@ -17,6 +17,7 @@ interface AnalysisViewProps {
   sections: Map<string, AnalysisSection>;
   activeSection: string | null;
   streamingSection: string | null;
+  subgroupEvidence: Map<string, RawEvidenceSearch[]>;
 }
 
 function buildSummaryContent(data: PolicySummaryData): string {
@@ -45,6 +46,7 @@ export function AnalysisView({
   sections,
   activeSection,
   streamingSection,
+  subgroupEvidence,
 }: AnalysisViewProps) {
   const effectiveSection = activeSection ?? (policySummary ? "policy_summary" : null);
 
@@ -128,6 +130,7 @@ export function AnalysisView({
         key={effectiveSection}
         content={section.content}
         isStreaming={isStreaming}
+        rawEvidence={effectiveSection ? subgroupEvidence.get(effectiveSection) : undefined}
       />
     </div>
   );

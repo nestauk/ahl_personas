@@ -19,6 +19,7 @@ import type {
   AnalysisProgress,
   AnalysisStep,
   ConversationStage,
+  EvidenceSearchRecord,
   PolicySummarySpec,
   ProposedSubGroups,
   SubGroup,
@@ -39,7 +40,6 @@ interface SpecificationSidebarProps {
   onRemoveSubGroup?: (id: string) => void;
   isLoading?: boolean;
   activeEvidenceSearch?: string | null;
-  evidenceSearchCount?: number;
   onSelectSection?: (sectionId: string) => void;
 }
 
@@ -269,11 +269,28 @@ function SubGroupCard({
   const isCategorical = subGroup.categorical && subGroup.category_pattern;
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3">
+    <div
+      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3"
+      aria-label={subGroup.name}
+    >
       <div className="flex items-start justify-between gap-2">
-        <h4 className="text-xs font-semibold text-[var(--color-text)]">
-          {subGroup.name}
-        </h4>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+          {isCategorical && (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
+              Category-level pattern
+            </span>
+          )}
+          {subGroup.modifiers.map((mod, i) => (
+            <span
+              key={i}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                CATEGORY_COLOURS[mod.category] || "bg-gray-100 text-gray-800"
+              }`}
+            >
+              {mod.value}
+            </span>
+          ))}
+        </div>
         {onRemove && (
           <button
             onClick={() => onRemove(subGroup.id)}
@@ -283,23 +300,6 @@ function SubGroupCard({
             <X size={14} />
           </button>
         )}
-      </div>
-      {isCategorical && (
-        <span className="mt-1 inline-block rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
-          Category-level pattern
-        </span>
-      )}
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        {subGroup.modifiers.map((mod, i) => (
-          <span
-            key={i}
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              CATEGORY_COLOURS[mod.category] || "bg-gray-100 text-gray-800"
-            }`}
-          >
-            {mod.value}
-          </span>
-        ))}
       </div>
       {isCategorical && subGroup.category_pattern && (
         <div className="mt-1.5 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
@@ -380,6 +380,52 @@ function SubGroupSection({
 }
 
 // ---------------------------------------------------------------------------
+// SearchList — expandable list of completed evidence searches for a step
+// ---------------------------------------------------------------------------
+
+function SearchList({ searches }: { searches: EvidenceSearchRecord[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (searches.length === 0) return null;
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+      >
+        {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <span>
+          {searches.length} evidence search{searches.length !== 1 ? "es" : ""}
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-1 space-y-1.5 pl-3.5">
+          {searches.map((s, i) => (
+            <div
+              key={i}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1"
+            >
+              <div className="flex items-start gap-1">
+                <Search size={9} className="mt-[3px] shrink-0 text-[var(--color-text-muted)]" />
+                <span className="text-[10px] leading-snug text-[var(--color-text)]">
+                  {s.query}
+                </span>
+              </div>
+              {s.numResults === 0 && (
+                <div className="mt-0.5 pl-[13px] text-[9px] text-red-500">
+                  No results found
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -397,7 +443,6 @@ export function SpecificationSidebar({
   onRemoveSubGroup,
   isLoading,
   activeEvidenceSearch,
-  evidenceSearchCount,
   onSelectSection,
 }: SpecificationSidebarProps) {
   const isSpecifying = stage === "specifying";
@@ -479,26 +524,38 @@ export function SpecificationSidebar({
                   step.name || `Sub-group ${(step.index ?? 0) + 1}`;
                 const sectionId = `sg_${step.index ?? 0}`;
                 const isActive = step.status === "active";
+                const stepSearches = step.searches ?? [];
 
                 let activeContent: React.ReactNode = null;
                 if (isActive && activeEvidenceSearch) {
                   activeContent = (
-                    <div className="evidence-search-indicator mt-1 flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
-                      <Search size={10} className="shrink-0 text-[var(--color-text-muted)]" />
-                      <span className="truncate text-[10px] text-[var(--color-text-muted)]">
-                        {activeEvidenceSearch}
-                      </span>
-                    </div>
+                    <>
+                      <div className="evidence-search-indicator mt-1 flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
+                        <Search size={10} className="shrink-0 text-[var(--color-text-muted)]" />
+                        <span className="truncate text-[10px] text-[var(--color-text-muted)]">
+                          {activeEvidenceSearch}
+                        </span>
+                      </div>
+                      {stepSearches.length > 0 && <SearchList searches={stepSearches} />}
+                    </>
                   );
                 } else if (isActive) {
                   activeContent = (
-                    <span className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                      {(evidenceSearchCount ?? 0) > 0
-                        ? `Generating analysis (${evidenceSearchCount} evidence searches done)…`
-                        : "Searching evidence base…"}
-                    </span>
+                    <>
+                      <span className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                        {stepSearches.length > 0
+                          ? "Generating analysis…"
+                          : "Searching evidence base…"}
+                      </span>
+                      {stepSearches.length > 0 && <SearchList searches={stepSearches} />}
+                    </>
                   );
                 }
+
+                const completedContent =
+                  (step.status === "complete" || step.status === "error") && stepSearches.length > 0
+                    ? <SearchList searches={stepSearches} />
+                    : null;
 
                 return (
                   <StepEntry
@@ -507,7 +564,12 @@ export function SpecificationSidebar({
                     label={label}
                     isLast={isLast && !synthesisStep}
                     onClick={() => onSelectSection?.(sectionId)}
-                    activeContent={activeContent}
+                    activeContent={
+                      <>
+                        {activeContent}
+                        {completedContent}
+                      </>
+                    }
                   />
                 );
               })}

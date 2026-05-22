@@ -45,6 +45,34 @@ export interface ProposedSubGroups {
   relevance_scan: Record<string, string>;
 }
 
+// --- Evidence search record ---
+
+export interface EvidenceSearchRecord {
+  query: string;
+  numResults: number;
+  sourceNames: string[];
+}
+
+// --- Raw evidence for hallucination detection ---
+
+export interface RawEvidenceChunk {
+  source_name: string;
+  source_year: string | null;
+  text: string;
+  page_number: number | null;
+}
+
+export interface RawEvidenceSearch {
+  query: string;
+  chunks: RawEvidenceChunk[];
+}
+
+export interface SubgroupEvidenceEvent {
+  type: "subgroup_evidence";
+  section_id: string;
+  searches: RawEvidenceSearch[];
+}
+
 // --- Analysis progress types ---
 
 export type AnalysisStepStatus = "pending" | "active" | "complete" | "error";
@@ -54,6 +82,7 @@ export interface AnalysisStep {
   index?: number;
   name?: string;
   status: AnalysisStepStatus;
+  searches?: EvidenceSearchRecord[];
 }
 
 export interface AnalysisProgress {
@@ -108,7 +137,8 @@ export type AnalysisDataEvent =
   | StageTransitionEvent
   | ProposedSubGroupsEvent
   | AnalysisContentEvent
-  | AnalysisCheckpointEvent;
+  | AnalysisCheckpointEvent
+  | SubgroupEvidenceEvent;
 
 // --- Taxonomy labels (for sidebar pill display) ---
 

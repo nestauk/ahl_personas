@@ -14,6 +14,7 @@ import {
   debouncedSave,
   fixInterruptedAnalysis,
   hydrateAnalysisSections,
+  hydrateSubgroupEvidence,
   loadSession,
 } from "@/lib/session-cache";
 import {
@@ -23,7 +24,9 @@ import {
   type AnalysisSection,
   type AnalysisStep,
   type ConversationStage,
+  type EvidenceSearchRecord,
   type ProposedSubGroups,
+  type RawEvidenceSearch,
   type SpecMetadata,
   type SubGroup,
 } from "@/lib/types";
@@ -55,6 +58,10 @@ function isAnalysisEvent(item: unknown): item is Record<string, unknown> {
   );
 }
 
+function jsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function ChatContainer() {
   const [initialCache] = useState(() => {
     const cached = loadSession();
@@ -84,9 +91,6 @@ export function ChatContainer() {
   const [activeEvidenceSearch, setActiveEvidenceSearch] = useState<
     string | null
   >(null);
-  const [evidenceSearchCount, setEvidenceSearchCount] = useState(
-    initialCache?.cached.evidenceSearchCount ?? 0,
-  );
 
   const [analysisSections, setAnalysisSections] = useState<
     Map<string, AnalysisSection>
@@ -99,6 +103,13 @@ export function ChatContainer() {
     initialCache?.cached.activeSection ?? null,
   );
   const [streamingSection, setStreamingSection] = useState<string | null>(null);
+  const [subgroupEvidence, setSubgroupEvidence] = useState<
+    Map<string, RawEvidenceSearch[]>
+  >(() =>
+    initialCache?.cached.subgroupEvidence
+      ? hydrateSubgroupEvidence(initialCache.cached.subgroupEvidence)
+      : new Map(),
+  );
 
   const specMetaRef = useRef(specMeta);
   specMetaRef.current = specMeta;
@@ -121,7 +132,17 @@ export function ChatContainer() {
   const pendingDeltasRef = useRef<Map<string, string>>(new Map());
   const flushRafRef = useRef<number | null>(null);
 
-  const newSectionsRef = useRef<string[]>([]);
+  const setActiveSectionIfChanged = useCallback((sectionId: string | null) => {
+    if (activeSectionRef.current === sectionId) return;
+    activeSectionRef.current = sectionId;
+    setActiveSection(sectionId);
+  }, []);
+
+  const setStreamingSectionIfChanged = useCallback((sectionId: string | null) => {
+    if (streamingSectionRef.current === sectionId) return;
+    streamingSectionRef.current = sectionId;
+    setStreamingSection(sectionId);
+  }, []);
 
   const flushPendingDeltas = useCallback(() => {
     flushRafRef.current = null;
@@ -131,22 +152,28 @@ export function ChatContainer() {
     const batch = new Map(pending);
     pending.clear();
 
-    newSectionsRef.current = [];
+    let shouldActivateScan = false;
 
     setAnalysisSections((prev) => {
       const next = new Map(prev);
+      let changed = false;
+
       batch.forEach((delta, sectionId) => {
+        if (!delta) return;
+
         const existing = next.get(sectionId);
         if (existing) {
           next.set(sectionId, {
             ...existing,
             content: existing.content + delta,
           });
+          changed = true;
         } else {
           const subgroups = confirmedSubGroupsRef.current;
           let name = sectionId;
           if (sectionId === "scan") {
             name = "Population Relevance Assessment";
+            shouldActivateScan = true;
           } else if (sectionId === "synthesis") {
             name = "Equity synthesis and provocations";
           } else if (sectionId.startsWith("sg_") && subgroups) {
@@ -154,21 +181,29 @@ export function ChatContainer() {
             name = subgroups[idx]?.name || `Sub-group ${idx + 1}`;
           }
           next.set(sectionId, { id: sectionId, name, content: delta });
-          newSectionsRef.current.push(sectionId);
+          changed = true;
         }
       });
-      return next;
+
+      return changed ? next : prev;
     });
 
-    for (const sectionId of newSectionsRef.current) {
-      if (sectionId === "scan") {
-        setActiveSection("scan");
-        setStreamingSection("scan");
-      }
+    if (shouldActivateScan) {
+      setActiveSectionIfChanged("scan");
+      setStreamingSectionIfChanged("scan");
     }
-  }, []);
+  }, [setActiveSectionIfChanged, setStreamingSectionIfChanged]);
 
   const lastProcessedDataIdx = useRef(-1);
+
+  const chatBody = useMemo(
+    () => ({
+      stage,
+      spec_state: specMeta,
+      confirmed_subgroups: confirmedSubGroups,
+    }),
+    [stage, specMeta, confirmedSubGroups],
+  );
 
   const {
     messages,
@@ -183,23 +218,25 @@ export function ChatContainer() {
     append,
   } = useChat({
     api: "http://localhost:8000/api/v1/chat",
-    body: {
-      stage,
-      spec_state: specMeta,
-      confirmed_subgroups: confirmedSubGroups,
-    },
+    body: chatBody,
     streamProtocol: "data",
   });
 
   useEffect(() => {
     if (!data || data.length === 0) return;
 
-    const specParsed = parseSpecFromData(data);
-    if (specParsed) {
-      setSpecMeta(specParsed);
+    const startIdx = lastProcessedDataIdx.current + 1;
+    if (startIdx >= data.length) return;
+
+    if (stageRef.current === "specifying") {
+      const specParsed = parseSpecFromData(data);
+      if (specParsed) {
+        setSpecMeta((prev) =>
+          jsonEqual(prev, specParsed) ? prev : specParsed,
+        );
+      }
     }
 
-    const startIdx = lastProcessedDataIdx.current + 1;
     for (let i = startIdx; i < data.length; i++) {
       const item = data[i];
       if (!isAnalysisEvent(item)) continue;
@@ -211,8 +248,14 @@ export function ChatContainer() {
           relevance_scan:
             (item.relevance_scan as unknown as Record<string, string>) || {},
         };
-        setProposedSubGroups(proposed);
-        setConfirmedSubGroups(proposed.subgroups);
+        setProposedSubGroups((prev) =>
+          prev && jsonEqual(prev, proposed) ? prev : proposed,
+        );
+        setConfirmedSubGroups((prev) => {
+          const next = proposed.subgroups;
+          if (prev && jsonEqual(prev, next)) return prev;
+          return next;
+        });
       }
 
       if (eventType === "analysis_content") {
@@ -245,18 +288,16 @@ export function ChatContainer() {
               });
               return next;
             });
-            setActiveSection("scan");
-            streamingSectionRef.current = "scan";
-            setStreamingSection("scan");
+            setActiveSectionIfChanged("scan");
+            setStreamingSectionIfChanged("scan");
           } else {
             const sectionId =
               step === "synthesis" ? "synthesis" : `sg_${index ?? 0}`;
-            streamingSectionRef.current = sectionId;
-            setStreamingSection(sectionId);
+            setStreamingSectionIfChanged(sectionId);
             const current = activeSectionRef.current;
             const lastStreamed = lastStreamedSectionRef.current;
             if (current === null || current === lastStreamed) {
-              setActiveSection(sectionId);
+              setActiveSectionIfChanged(sectionId);
             }
           }
         }
@@ -264,8 +305,7 @@ export function ChatContainer() {
         if (status === "complete" || status === "error") {
           flushPendingDeltas();
           lastStreamedSectionRef.current = streamingSectionRef.current;
-          streamingSectionRef.current = null;
-          setStreamingSection(null);
+          setStreamingSectionIfChanged(null);
           setActiveEvidenceSearch(null);
         }
 
@@ -276,7 +316,14 @@ export function ChatContainer() {
           );
 
           if (existing >= 0) {
-            const merged = { ...steps[existing], status };
+            const current = steps[existing];
+            if (
+              current.status === status &&
+              (name === undefined || current.name === name)
+            ) {
+              return prev;
+            }
+            const merged = { ...current, status };
             if (name !== undefined) merged.name = name;
             if (index !== undefined) merged.index = index;
             steps[existing] = merged;
@@ -293,17 +340,47 @@ export function ChatContainer() {
               (s) => s.status === "complete" || s.status === "error",
             );
 
-          return { steps, isComplete };
+          const next = { steps, isComplete };
+          return jsonEqual(prev, next) ? prev : next;
         });
       }
 
       if (eventType === "evidence_search") {
-        setActiveEvidenceSearch(item.query as string);
+        const query = item.query as string;
+        setActiveEvidenceSearch((prev) => (prev === query ? prev : query));
       }
 
       if (eventType === "evidence_search_complete") {
         setActiveEvidenceSearch(null);
-        setEvidenceSearchCount((prev) => prev + 1);
+        const record: EvidenceSearchRecord = {
+          query: item.query as string,
+          numResults: item.num_results as number,
+          sourceNames: (item.source_names as string[]) ?? [],
+        };
+        setAnalysisProgress((prev) => {
+          const steps = [...prev.steps];
+          const activeIdx = steps.findIndex(
+            (s) => s.step === "subgroup" && s.status === "active",
+          );
+          if (activeIdx >= 0) {
+            const step = steps[activeIdx];
+            steps[activeIdx] = {
+              ...step,
+              searches: [...(step.searches ?? []), record],
+            };
+          }
+          return { ...prev, steps };
+        });
+      }
+
+      if (eventType === "subgroup_evidence") {
+        const sectionId = item.section_id as string;
+        const searches = item.searches as unknown as RawEvidenceSearch[];
+        setSubgroupEvidence((prev) => {
+          const next = new Map(prev);
+          next.set(sectionId, searches);
+          return next;
+        });
       }
 
       if (eventType === "analysis_checkpoint") {
@@ -314,7 +391,7 @@ export function ChatContainer() {
         const newStage = item.stage as ConversationStage;
         setStage(newStage);
         setActiveEvidenceSearch(null);
-        setStreamingSection(null);
+        setStreamingSectionIfChanged(null);
 
         if (newStage === "chatting" && !checkpointReachedRef.current) {
           const sectionCount = analysisSectionsRef.current.size;
@@ -332,7 +409,7 @@ export function ChatContainer() {
     }
     lastProcessedDataIdx.current = data.length - 1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, setMessages, flushPendingDeltas]);
+  }, [data, data?.length, flushPendingDeltas, setActiveSectionIfChanged, setStreamingSectionIfChanged, setMessages]);
 
   useEffect(() => {
     if (!initialCache) return;
@@ -373,7 +450,7 @@ export function ChatContainer() {
       analysisProgress,
       analysisSections,
       activeSection,
-      evidenceSearchCount,
+      subgroupEvidence,
     });
   }, [
     stage,
@@ -384,7 +461,7 @@ export function ChatContainer() {
     analysisProgress,
     analysisSections,
     activeSection,
-    evidenceSearchCount,
+    subgroupEvidence,
   ]);
 
   const handleNewSession = useCallback(() => {
@@ -399,10 +476,10 @@ export function ChatContainer() {
     setConfirmedSubGroups(null);
     setAnalysisProgress(createEmptyAnalysisProgress());
     setActiveEvidenceSearch(null);
-    setEvidenceSearchCount(0);
     setAnalysisSections(new Map());
-    setActiveSection(null);
-    setStreamingSection(null);
+    setActiveSectionIfChanged(null);
+    setStreamingSectionIfChanged(null);
+    setSubgroupEvidence(new Map());
     lastProcessedDataIdx.current = -1;
     checkpointReachedRef.current = false;
     pendingDeltasRef.current.clear();
@@ -467,7 +544,6 @@ export function ChatContainer() {
         isComplete: false,
       };
     });
-    setEvidenceSearchCount(0);
     setAnalysisSections((prev) => {
       const scanSection = prev.get("scan");
       if (scanSection) {
@@ -477,8 +553,8 @@ export function ChatContainer() {
       }
       return new Map();
     });
-    setActiveSection(null);
-    setStreamingSection(null);
+    setActiveSectionIfChanged(null);
+    setStreamingSectionIfChanged(null);
 
     append({
       role: "user",
@@ -544,8 +620,8 @@ export function ChatContainer() {
   );
 
   const handleSelectSection = useCallback((sectionId: string) => {
-    setActiveSection(sectionId);
-  }, []);
+    setActiveSectionIfChanged(sectionId);
+  }, [setActiveSectionIfChanged]);
 
   // --- Layout logic ---
   const hasSummary = !!specMeta.spec.policy_summary;
@@ -603,7 +679,6 @@ export function ChatContainer() {
           onRemoveSubGroup={handleRemoveSubGroup}
           isLoading={isLoading}
           activeEvidenceSearch={activeEvidenceSearch}
-          evidenceSearchCount={evidenceSearchCount}
           onSelectSection={handleSelectSection}
         />
 
@@ -637,6 +712,7 @@ export function ChatContainer() {
               sections={analysisSections}
               activeSection={activeSection}
               streamingSection={streamingSection}
+              subgroupEvidence={subgroupEvidence}
             />
           </div>
         )}

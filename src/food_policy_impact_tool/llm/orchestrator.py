@@ -76,21 +76,23 @@ def _format_evidence_context(results: list[RetrievalResult]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def _format_tool_evidence(results: list[RetrievalResult]) -> str:
+def _format_tool_evidence(results: list[RetrievalResult], query: str = "") -> str:
     """Format retrieval results as a tool call response for the LLM."""
     if not results:
         return (
-            "No relevant evidence was found in the curated evidence base for this "
-            "query. Flag this area as an evidence gap [Gap] in your analysis and "
-            "reason from the sub-group's material constraints if possible [Reasoning]."
+            f'No relevant evidence found for query: "{query}"\n'
+            "Flag any claims in this area as [Gap] and note that this evidence gap exists. "
+            "Reason from the sub-group's material constraints if possible [Reasoning]."
         )
 
     sections: list[str] = []
     for i, result in enumerate(results, 1):
         source = result.chunk.source
-        header = f"[Source {i}] {source.source_name}"
+        header = f"[Chunk {i}] Source: \"{source.source_name}\""
         if source.year:
             header += f" ({source.year})"
+        if result.chunk.page_number is not None:
+            header += f", p.{result.chunk.page_number}"
         if source.methodology:
             header += f" | Methodology: {source.methodology}"
         sections.append(f"{header}\n{result.chunk.text}")
@@ -335,6 +337,7 @@ async def _stream_subgroup_with_tools(
     policy_spec: str,
     sub_group: dict[str, Any],
     retriever: HybridRetriever,
+    raw_searches: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[tuple[str, Any]]:
     """Run a per-sub-group analysis call with search_evidence tool calling.
 
@@ -346,6 +349,8 @@ async def _stream_subgroup_with_tools(
         policy_spec: Formatted policy specification text.
         sub_group: The sub-group dict with name, modifiers, rationale.
         retriever: Evidence retriever for tool calls.
+        raw_searches: Mutable list that receives raw search records (query + chunks)
+            for each tool call. Caller reads this after iteration completes.
 
     Yields:
         Tuples of ("text", content) or ("data", event_dict).
@@ -470,7 +475,7 @@ async def _stream_subgroup_with_tools(
 
                     retrieve_start = time.monotonic()
                     results = retriever.retrieve(query, top_k=8)
-                    tool_response = _format_tool_evidence(results)
+                    tool_response = _format_tool_evidence(results, query=query)
                     retrieve_ms = (time.monotonic() - retrieve_start) * 1000
 
                     logger.info(
@@ -478,10 +483,29 @@ async def _stream_subgroup_with_tools(
                         sg_name, query[:60], len(results), retrieve_ms,
                     )
 
+                    source_names = list(dict.fromkeys(
+                        r.chunk.source.source_name for r in results
+                    ))
+
+                    if raw_searches is not None:
+                        raw_searches.append({
+                            "query": query,
+                            "chunks": [
+                                {
+                                    "source_name": r.chunk.source.source_name,
+                                    "source_year": r.chunk.source.year,
+                                    "text": r.chunk.text,
+                                    "page_number": r.chunk.page_number,
+                                }
+                                for r in results
+                            ],
+                        })
+
                     yield ("data", {
                         "type": "evidence_search_complete",
                         "query": query,
                         "num_results": len(results),
+                        "source_names": source_names,
                     })
                 else:
                     tool_response = f"Unknown tool: {fn_name}"
@@ -619,12 +643,25 @@ async def stream_analysis_chain(
             "status": "active",
         })
 
+        if i == 0:
+            yield ("text", (
+                f"Starting analysis for **{sg_name}** "
+                f"({i + 1} of {n}) — searching the evidence base…\n\n"
+            ))
+        else:
+            yield ("text", (
+                f"Moving to **{sg_name}** "
+                f"({i + 1} of {n}) — searching the evidence base…\n\n"
+            ))
+
         section_id = f"sg_{i}"
         try:
             sg_start = time.monotonic()
             analysis_text: list[str] = []
+            sg_raw_searches: list[dict[str, Any]] = []
             async for part in _stream_subgroup_with_tools(
                 client, policy_spec, sg, retriever,
+                raw_searches=sg_raw_searches,
             ):
                 if part[0] == "text":
                     analysis_text.append(part[1])
@@ -642,12 +679,19 @@ async def stream_analysis_chain(
                 "[chain] Sub-group %d/%d COMPLETE: '%s' — %d chars in %.1fs",
                 i + 1, n, sg_name, text_len, sg_elapsed,
             )
+            if sg_raw_searches:
+                yield ("data", {
+                    "type": "subgroup_evidence",
+                    "section_id": section_id,
+                    "searches": sg_raw_searches,
+                })
             yield ("data", {
                 "type": "analysis_step",
                 "step": "subgroup",
                 "index": i,
                 "status": "complete",
             })
+            yield ("text", f"Completed **{sg_name}**.\n\n")
         except Exception:
             logger.exception(
                 "[chain] Sub-group %d/%d FAILED: '%s'", i + 1, n, sg_name,
@@ -666,6 +710,10 @@ async def stream_analysis_chain(
                 "index": i,
                 "status": "error",
             })
+            yield ("text", (
+                f"Analysis for **{sg_name}** encountered an error. "
+                f"Continuing with the remaining sub-groups.\n\n"
+            ))
 
     chain_elapsed = time.monotonic() - chain_start
     logger.info(

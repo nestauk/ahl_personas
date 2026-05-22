@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@radix-ui/react-popover": "^1.1.15",
     "ai": "^4",
     "lucide-react": "^1.16.0",
     "next": "^15",
