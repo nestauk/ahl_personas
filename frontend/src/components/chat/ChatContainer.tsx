@@ -9,6 +9,7 @@ import { Header } from "../ui/Header";
 import { SpecificationSidebar } from "../specification/SpecificationSidebar";
 import { AnalysisView } from "../analysis/AnalysisView";
 import { EvidenceDrawer } from "../evidence/EvidenceDrawer";
+import { API_BASE, apiHeaders } from "@/lib/api";
 import { buildSpecBlock } from "@/lib/spec-helpers";
 import {
   clearSession,
@@ -265,7 +266,8 @@ export function ChatContainer() {
     setData,
     append,
   } = useChat({
-    api: "http://localhost:8000/api/v1/chat",
+    api: `${API_BASE}/api/v1/chat`,
+    headers: apiHeaders(),
     body: chatBody,
     streamProtocol: "data",
   });
@@ -790,7 +792,9 @@ export function ChatContainer() {
     if (evidenceSourcesFetchedRef.current) return;
     evidenceSourcesFetchedRef.current = true;
     try {
-      const res = await fetch("http://localhost:8000/api/v1/evidence/sources");
+      const res = await fetch(`${API_BASE}/api/v1/evidence/sources`, {
+        headers: apiHeaders(),
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: EvidenceSourcesResponse = await res.json();
       setEvidenceSources(data.sources);

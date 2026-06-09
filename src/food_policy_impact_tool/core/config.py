@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     evidence_csv_path: str = str(_PROJECT_ROOT / "data" / "evidence_base.csv")
     sources_dir: str = str(_PROJECT_ROOT / "data" / "sources")
 
+    api_key: str | None = None
+    cors_origins: str = "http://localhost:3000"
+
     chunk_size: int = 3000
     chunk_overlap: int = 400
     retrieval_top_k: int = 10
