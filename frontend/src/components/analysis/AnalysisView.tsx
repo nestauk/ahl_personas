@@ -15,6 +15,10 @@ import {
   isSynthesisSection,
 } from "@/lib/analysis-sections";
 import { AnalysisSectionPanel } from "./AnalysisSectionPanel";
+import {
+  MethodologyAuditCard,
+  type AuditCardData,
+} from "../methodology/MethodologyAuditCard";
 
 interface PolicySummaryData {
   name: string;
@@ -35,6 +39,8 @@ interface AnalysisViewProps {
   synthesisComplete?: boolean;
   onNavigateToSection?: (sectionId: string) => void;
   onOpenEvidenceDrawer?: (targetSourceName?: string) => void;
+  onOpenMethodologyDrawer?: (scrollTo?: string) => void;
+  auditCardData?: AuditCardData | null;
 }
 
 function buildSummaryContent(data: PolicySummaryData): string {
@@ -70,6 +76,8 @@ export function AnalysisView({
   synthesisComplete = false,
   onNavigateToSection,
   onOpenEvidenceDrawer,
+  onOpenMethodologyDrawer,
+  auditCardData,
 }: AnalysisViewProps) {
   const effectiveSection = activeSection ?? (policySummary ? "policy_summary" : null);
 
@@ -94,9 +102,28 @@ export function AnalysisView({
     );
   }
 
+  if (effectiveSection === "methodology" && auditCardData) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-gray-200 bg-gray-50 px-8 py-3">
+          <h2 className="text-sm font-semibold text-gray-900">
+            Analysis Methodology
+          </h2>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Summary of inputs, evidence usage, and grounding for this analysis
+            run.
+          </p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+          <MethodologyAuditCard data={auditCardData} />
+        </div>
+      </div>
+    );
+  }
+
   const section = effectiveSection ? sections.get(effectiveSection) : null;
 
-  if (!section && effectiveSection && effectiveSection !== "policy_summary") {
+  if (!section && effectiveSection && effectiveSection !== "policy_summary" && effectiveSection !== "methodology") {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center text-sm text-[var(--color-text-muted)]">
@@ -199,6 +226,7 @@ export function AnalysisView({
           confirmedSubGroups={confirmedSubGroups ?? undefined}
           onNavigateToSection={onNavigateToSection}
           onOpenEvidenceDrawer={onOpenEvidenceDrawer}
+          onOpenMethodologyDrawer={onOpenMethodologyDrawer}
         />
       )}
     </div>

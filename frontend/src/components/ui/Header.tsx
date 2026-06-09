@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, RotateCcw } from "lucide-react";
+import { BookOpen, Info, RotateCcw } from "lucide-react";
 import type { ConversationStage } from "@/lib/types";
 
 interface HeaderProps {
@@ -8,6 +8,7 @@ interface HeaderProps {
   stage: ConversationStage;
   sourceCount: number | null;
   onOpenEvidenceDrawer: () => void;
+  onOpenMethodology: () => void;
 }
 
 const STAGE_LABELS: Record<ConversationStage, string> = {
@@ -21,6 +22,7 @@ export function Header({
   stage,
   sourceCount,
   onOpenEvidenceDrawer,
+  onOpenMethodology,
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-4">
@@ -38,6 +40,13 @@ export function Header({
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <button
+          onClick={onOpenMethodology}
+          className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
+        >
+          <Info size={14} />
+          How this works
+        </button>
         <button
           onClick={onOpenEvidenceDrawer}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"

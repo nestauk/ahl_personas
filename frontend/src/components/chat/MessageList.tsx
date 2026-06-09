@@ -42,13 +42,20 @@ export function MessageList({
           <h2 className="mb-2 text-lg font-medium text-[var(--color-text)]">
             Policy Equity Impact Analysis
           </h2>
-          <p className="mb-6 text-sm leading-relaxed text-[var(--color-text-muted)]">
+          <p className="mb-4 text-sm leading-relaxed text-[var(--color-text-muted)]">
             Describe a food environment policy you&apos;d like to analyse for
             equity impact. This can be a rough idea — I&apos;ll ask some
             questions to clarify the details. You can skip any question if
             you&apos;re unsure — it&apos;ll become an open question for the
             analysis to explore.
           </p>
+          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs leading-relaxed text-amber-800">
+            This tool uses AI to analyse how food policies may affect different
+            population groups, grounded in a curated evidence base of UK
+            qualitative research. It is a pre-consultation analytical aid — it
+            helps sharpen thinking before real engagement with affected
+            communities, not as a substitute for that engagement.
+          </div>
           <PolicyCards onSelectPolicy={onSelectPolicy} />
         </div>
       </div>

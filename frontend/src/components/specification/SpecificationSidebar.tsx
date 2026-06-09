@@ -10,6 +10,7 @@ import {
   ChevronRight,
   FileText,
   HelpCircle,
+  Info,
   Play,
   Search,
   X,
@@ -57,6 +58,7 @@ interface SpecificationSidebarProps {
   sgLabels?: Map<string, string>;
   streamingSection?: string | null;
   scanCategoryProgress?: { completed: number; total: number } | null;
+  hasAuditCard?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +202,7 @@ function StepEntry({
   isLast?: boolean;
   onClick?: () => void;
   activeContent?: React.ReactNode;
-  completedVariant?: "default" | "synthesis";
+  completedVariant?: "default" | "synthesis" | "methodology";
 }) {
   const isActive = status === "active";
   const isClickable = status === "complete" || status === "active";
@@ -212,7 +214,11 @@ function StepEntry({
       )}
 
       <div className="relative z-10 flex shrink-0">
-        {status === "complete" && completedVariant === "synthesis" ? (
+        {status === "complete" && completedVariant === "methodology" ? (
+          <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-gray-400">
+            <Info size={12} className="text-white" />
+          </div>
+        ) : status === "complete" && completedVariant === "synthesis" ? (
           <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-indigo-500">
             <FileText size={12} className="text-white" />
           </div>
@@ -502,6 +508,7 @@ export function SpecificationSidebar({
   sgLabels,
   streamingSection = null,
   scanCategoryProgress = null,
+  hasAuditCard = false,
 }: SpecificationSidebarProps) {
   const isSpecifying = stage === "specifying";
   const isAnalysing = stage === "analysing";
@@ -723,10 +730,27 @@ export function SpecificationSidebar({
             </>
           )}
 
+          {hasAuditCard && (
+            <div className="px-4 pt-2">
+              <StepEntry
+                status="complete"
+                label="Analysis Methodology"
+                isLast
+                onClick={() => onSelectSection?.("methodology")}
+                completedVariant="methodology"
+              />
+            </div>
+          )}
+
           {isComplete && (
-            <div className="px-4 pb-4">
+            <div className="px-4 pb-4 space-y-2">
               <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-center text-xs font-medium text-green-700">
                 Analysis complete — ask follow-up questions below
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] leading-relaxed text-amber-800">
+                This analysis is AI-generated from a limited evidence base.
+                Claims should be verified through direct engagement with
+                affected communities.
               </div>
             </div>
           )}

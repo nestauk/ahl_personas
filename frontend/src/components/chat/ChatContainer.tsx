@@ -9,6 +9,11 @@ import { Header } from "../ui/Header";
 import { SpecificationSidebar } from "../specification/SpecificationSidebar";
 import { AnalysisView } from "../analysis/AnalysisView";
 import { EvidenceDrawer } from "../evidence/EvidenceDrawer";
+import { MethodologyDrawer } from "../methodology/MethodologyDrawer";
+import {
+  buildAuditCardData,
+  type AuditCardData,
+} from "../methodology/MethodologyAuditCard";
 import { API_BASE, apiHeaders } from "@/lib/api";
 import { buildSpecBlock } from "@/lib/spec-helpers";
 import {
@@ -148,6 +153,10 @@ export function ChatContainer() {
   const [evidenceDrawerTarget, setEvidenceDrawerTarget] = useState<string | null>(null);
   const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[] | null>(null);
   const evidenceSourcesFetchedRef = useRef(false);
+
+  const [methodologyDrawerOpen, setMethodologyDrawerOpen] = useState(false);
+  const [methodologyScrollTarget, setMethodologyScrollTarget] = useState<string | null>(null);
+  const [auditCardData, setAuditCardData] = useState<AuditCardData | null>(null);
 
   const specMetaRef = useRef(specMeta);
   specMetaRef.current = specMeta;
@@ -632,6 +641,8 @@ export function ChatContainer() {
     setScanCategoryProgress(null);
     setEvidenceDrawerOpen(false);
     setEvidenceDrawerTarget(null);
+    setAuditCardData(null);
+    auditCardBuiltRef.current = false;
     lastProcessedDataIdx.current = -1;
     checkpointReachedRef.current = false;
     pendingDeltasRef.current.clear();
@@ -735,6 +746,43 @@ export function ChatContainer() {
     [confirmedSubGroups],
   );
 
+  // Build the methodology audit card when analysis completes
+  const auditCardBuiltRef = useRef(false);
+  useEffect(() => {
+    if (!analysisProgress.isComplete || auditCardBuiltRef.current) return;
+    auditCardBuiltRef.current = true;
+
+    const citedNames = new Set<string>();
+    subgroupEvidence.forEach((searches) => {
+      for (const search of searches) {
+        for (const chunk of search.chunks) {
+          citedNames.add(chunk.source_name);
+        }
+      }
+    });
+
+    const data = buildAuditCardData({
+      policyName: specMeta.spec.policy_name,
+      policySummary: specMeta.spec.policy_summary,
+      confirmedSubGroups,
+      subgroupEvidence,
+      evidenceSourceCount: evidenceSources?.length ?? null,
+      summaryCards,
+      citedSourceCount: citedNames.size,
+    });
+
+    setAuditCardData(data);
+    setAnalysisSections((prev) => {
+      const next = new Map(prev);
+      next.set("methodology", {
+        id: "methodology",
+        name: "Analysis Methodology",
+        content: "",
+      });
+      return next;
+    });
+  }, [analysisProgress.isComplete, specMeta, confirmedSubGroups, subgroupEvidence, evidenceSources, summaryCards]);
+
   const awaitingSynthesis = useMemo(() => {
     const steps = analysisProgress.steps;
     const subgroupSteps = steps.filter((s) => s.step === "subgroup");
@@ -820,6 +868,19 @@ export function ChatContainer() {
     setEvidenceDrawerTarget(null);
   }, []);
 
+  const handleOpenMethodologyDrawer = useCallback(
+    (scrollTo?: string) => {
+      setMethodologyDrawerOpen(true);
+      setMethodologyScrollTarget(scrollTo ?? null);
+    },
+    [],
+  );
+
+  const handleCloseMethodologyDrawer = useCallback(() => {
+    setMethodologyDrawerOpen(false);
+    setMethodologyScrollTarget(null);
+  }, []);
+
   const handleClearEvidenceTarget = useCallback(() => {
     setEvidenceDrawerTarget(null);
   }, []);
@@ -879,6 +940,7 @@ export function ChatContainer() {
         stage={stage}
         sourceCount={evidenceSources?.length ?? null}
         onOpenEvidenceDrawer={() => handleOpenEvidenceDrawer()}
+        onOpenMethodology={() => handleOpenMethodologyDrawer()}
       />
       <div className="flex min-h-0 flex-1">
         {/* Sidebar (left, fixed width) */}
@@ -903,6 +965,7 @@ export function ChatContainer() {
           sgLabels={sgLabels}
           streamingSection={streamingSection}
           scanCategoryProgress={scanCategoryProgress}
+          hasAuditCard={auditCardData !== null}
         />
 
         {/* Chat (centre, always present) */}
@@ -942,6 +1005,8 @@ export function ChatContainer() {
               synthesisComplete={synthesisComplete}
               onNavigateToSection={handleSelectSection}
               onOpenEvidenceDrawer={handleOpenEvidenceDrawer}
+              onOpenMethodologyDrawer={handleOpenMethodologyDrawer}
+              auditCardData={auditCardData}
             />
           </div>
         )}
@@ -957,6 +1022,12 @@ export function ChatContainer() {
         confirmedSubGroups={confirmedSubGroups}
         hasAnalysis={analysisProgress.steps.length > 0}
         onNavigateToSubgroup={handleSelectSection}
+      />
+
+      <MethodologyDrawer
+        open={methodologyDrawerOpen}
+        onClose={handleCloseMethodologyDrawer}
+        scrollToSection={methodologyScrollTarget}
       />
     </div>
   );

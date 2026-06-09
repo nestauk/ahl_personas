@@ -34,6 +34,7 @@ interface AnalysisSectionPanelProps {
   confirmedSubGroups?: SubGroup[];
   onNavigateToSection?: (sectionId: string) => void;
   onOpenEvidenceDrawer?: (targetSourceName?: string) => void;
+  onOpenMethodologyDrawer?: (scrollTo?: string) => void;
 }
 
 export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
@@ -46,6 +47,7 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   confirmedSubGroups,
   onNavigateToSection,
   onOpenEvidenceDrawer,
+  onOpenMethodologyDrawer,
 }: AnalysisSectionPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -127,6 +129,12 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
     return null;
   })();
 
+  const showBadgeLegendLink =
+    onOpenMethodologyDrawer &&
+    content.trim() &&
+    sectionId &&
+    (sectionId.startsWith("sg_") || isSynthesisSection(sectionId));
+
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
       {skeletonType ? (
@@ -135,6 +143,17 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
         <>
           {summaryCard && sectionId && (
             <ArtifactSummaryCard card={summaryCard} sectionId={sectionId} />
+          )}
+          {showBadgeLegendLink && (
+            <div className="mx-auto mb-3 max-w-3xl">
+              <button
+                type="button"
+                onClick={() => onOpenMethodologyDrawer("grounding-levels")}
+                className="text-[11px] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-accent)]"
+              >
+                What do the coloured badges mean?
+              </button>
+            </div>
           )}
           <div ref={proseRef} className="prose mx-auto max-w-3xl">
             <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
