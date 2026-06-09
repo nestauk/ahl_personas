@@ -11,6 +11,12 @@ def init_retriever() -> None:
     _retriever = HybridRetriever(_store)
 
 
+def get_store() -> EvidenceStore:
+    if _store is None:
+        raise RuntimeError("Store not initialised — has the app started up?")
+    return _store
+
+
 def get_retriever() -> HybridRetriever:
     if _retriever is None:
         raise RuntimeError("Retriever not initialised — has the app started up?")

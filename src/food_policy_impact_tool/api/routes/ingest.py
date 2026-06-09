@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter
 
+from food_policy_impact_tool.api.dependencies import get_store
 from food_policy_impact_tool.evidence.ingest import run_ingestion
 
 logger = logging.getLogger(__name__)
@@ -17,5 +18,5 @@ async def ingest():
     Idempotent: unchanged sources are skipped.
     """
     logger.info("Ingestion triggered via API")
-    counts = run_ingestion()
+    counts = run_ingestion(store=get_store())
     return {"status": "complete", **counts}

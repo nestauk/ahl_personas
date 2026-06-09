@@ -25,11 +25,16 @@ def _compute_content_hash(source: EvidenceSource, pdf_text: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def run_ingestion() -> dict[str, int]:
+def run_ingestion(store: EvidenceStore | None = None) -> dict[str, int]:
     """Run the full evidence ingestion pipeline.
 
     Parses the CSV, extracts PDF text, chunks, embeds, and stores in Qdrant.
     Idempotent: skips unchanged sources, re-ingests changed ones, adds new ones.
+
+    Args:
+        store: Optional existing store instance. When provided (e.g. from the
+            running API), the store is reused and not closed on completion. When
+            omitted (CLI usage), a new store is created and closed afterwards.
 
     Returns:
         Summary dict with counts: ingested, skipped_no_filename, skipped_unchanged, failed.
@@ -40,7 +45,9 @@ def run_ingestion() -> dict[str, int]:
     logger.info("Starting ingestion from %s", settings.evidence_csv_path)
 
     sources = parse_evidence_csv(settings.evidence_csv_path)
-    store = EvidenceStore()
+    owns_store = store is None
+    if store is None:
+        store = EvidenceStore()
 
     counts = {
         "ingested": 0,
@@ -117,7 +124,8 @@ def run_ingestion() -> dict[str, int]:
         store.count(),
     )
 
-    store.close()
+    if owns_store:
+        store.close()
     return counts
 
 
