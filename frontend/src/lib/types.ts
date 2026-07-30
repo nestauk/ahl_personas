@@ -3,6 +3,7 @@ export interface PolicySummarySpec {
   policy_summary: string | null;
   taxonomy_mapping: Record<string, string[]>;
   open_questions: string[];
+  outcomes_of_interest: string[];
   ready_for_analysis: boolean;
 }
 
@@ -198,6 +199,7 @@ export const EMPTY_SUMMARY_SPEC: PolicySummarySpec = {
   policy_summary: null,
   taxonomy_mapping: {},
   open_questions: [],
+  outcomes_of_interest: [],
   ready_for_analysis: false,
 };
 

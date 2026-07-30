@@ -12,6 +12,7 @@ class PolicySummarySpec(BaseModel):
     policy_summary: str | None = None
     taxonomy_mapping: dict[str, list[str]] = {}
     open_questions: list[str] = []
+    outcomes_of_interest: list[str] = []
     ready_for_analysis: bool = False
 
 

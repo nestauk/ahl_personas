@@ -157,6 +157,11 @@ Example:
 
 This summary card appears at the top of the artifact in the reading panel — make it scannable.
 
+**Every `key_findings` string must stand alone.** By default the analyst sees only the summary card, not the full analysis — each finding must make complete sense on its own. State who is affected, what changes for them, in which direction, and through what mechanism, in plain words. Order the array most important first.
+
+- Good: "Because this group shops mainly at convenience stores, price caps save them proportionally more than supermarket shoppers — but thin margins mean those stores may stop stocking capped items."
+- Bad: "De-stocking risk undermines realised savings" (unintelligible without the full analysis).
+
 ## What you must NOT do
 
 - Do not frame your analysis as representing the views of any community or group

@@ -118,13 +118,15 @@ Apply this check to every category, not just ethnicity or any single category.
 
 ### Part 2 — Sub-group composition
 
-Combine the HIGH-rated modifiers into **4–6 sub-groups** that capture the range of likely differential impacts. Each sub-group is a combination of 2–4 modifiers.
+Combine the HIGH-rated modifiers into **4–6 sub-groups** that capture the range of likely differential impacts. Each sub-group is a combination of 2–4 modifiers — **use the fewest modifiers that define a distinct group**. Two modifiers is often enough. Only add a third or fourth when it *changes how the group experiences the policy*, not merely to narrow the group. A modifier that would leave the analysis unchanged should be dropped. Over-specified sub-groups produce repetitive, overlapping analyses.
 
 Rules:
 - Include at least one sub-group likely to **benefit** from the policy and at least one likely to be **disadvantaged**
 - When a categorical pattern has been detected, use the category-level sub-group rather than picking one specific modifier from the category
 - Prioritise the analysts' priority modifiers when they are rated HIGH
 - Each sub-group should represent a distinct combination of material constraints — avoid near-duplicates
+- Keep sub-groups only as specific as the policy demands: every modifier in the combination must earn its place by altering the expected impact
+- If the policy specification lists **equity-related outcomes of interest**, weight your relevance ratings and sub-group composition towards modifiers that bear on those outcomes
 - Briefly explain why each sub-group was selected and what differential impact you expect
 
 ## Policy-modifier heuristic mapping
@@ -300,6 +302,8 @@ After your full output (including the `<proposed_sub_groups>` block), append a `
 - `high_count`, `moderate_count`, `low_count`: integer counts of modifiers at each relevance level (from your `relevance_scan` ratings)
 
 This card appears at the top of the scan artifact in the reading panel — make it punchy and scannable.
+
+**Every `key_findings` string must stand alone.** The analyst reads these before (and often instead of) the full assessment — each one must make complete sense without it. Name who or what is affected, what the pattern is, and why it matters, in plain words. Avoid compressed shorthand that only becomes clear after reading the full document.
 
 ## Tone
 

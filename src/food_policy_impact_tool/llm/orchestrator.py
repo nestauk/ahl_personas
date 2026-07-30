@@ -382,6 +382,12 @@ def _format_spec_state(spec_state: dict[str, Any] | None) -> str:
         for q in questions:
             lines.append(f"- {q}")
 
+    outcomes = spec.get("outcomes_of_interest", [])
+    if outcomes:
+        lines.append("\nEquity-related outcomes of interest to the analyst:")
+        for o in outcomes:
+            lines.append(f"- {o}")
+
     return "\n".join(lines)
 
 
@@ -467,6 +473,13 @@ def _extract_policy_spec_from_history(messages: list[ChatMessage]) -> str:
                 questions = spec.get("open_questions", [])
                 if questions:
                     lines.append(f"\nOpen questions: {'; '.join(questions)}.")
+
+                outcomes = spec.get("outcomes_of_interest", [])
+                if outcomes:
+                    lines.append(
+                        f"\nEquity-related outcomes of interest to the analyst: "
+                        f"{'; '.join(outcomes)}."
+                    )
 
                 return "\n".join(lines)
             except (json.JSONDecodeError, KeyError):
@@ -952,6 +965,13 @@ async def stream_analysis_chain(
 
     policy_spec = _extract_policy_spec_from_history(messages)
 
+    yield ("text", (
+        f"Starting the detailed analysis of {n} sub-groups. Before reading the "
+        f"results, consider: **for each group, how would you expect them to "
+        f"benefit or be harmed, and through what mechanism?** The analyses are "
+        f"most useful where they differ from what you expected.\n\n"
+    ))
+
     completed_count = 0
 
     for i, sg in enumerate(confirmed_subgroups):
@@ -1074,7 +1094,10 @@ async def stream_analysis_chain(
         f"All {n} sub-group analyses complete. The analysis panel contains detailed "
         f"findings for each population group. Review them, then click **Run synthesis** "
         f"in the sidebar to generate the equity assessment, risks analysis, and design "
-        f"recommendations."
+        f"recommendations.\n\n"
+        f"Before running synthesis, one thing worth thinking about: **where might "
+        f"helping one of these groups come at a cost to another?** Tensions like "
+        f"that are a key thing the synthesis looks for."
     ))
 
 
@@ -1265,6 +1288,14 @@ async def stream_response(
 
         logger.info("[scan] Starting population relevance scan")
         yield ("data", {"type": "analysis_step", "step": "scan", "status": "active"})
+        yield ("text", (
+            "I'm now assessing which population characteristics this policy "
+            "interacts with — this takes a minute or two.\n\n"
+            "While I work, it's worth jotting down your own view: **which population "
+            "groups would you expect to be most affected by this policy, and would "
+            "they benefit or lose out?** Comparing your expectations against the "
+            "assessment is a useful check on both.\n\n"
+        ))
 
         api_messages = _build_messages(
             system_prompt=system_prompt,

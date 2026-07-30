@@ -63,6 +63,24 @@ The sub-group analyses you're synthesising contain grounding badges indicating t
 - `[SG]` badge detail should carry through the grounding level from the original sub-group analysis
 - Use `[Gap]` badges in the synthesis when the sub-group analyses collectively reveal an area where evidence is missing — the convergence of gaps is itself a finding
 
+## Prioritise and order findings
+
+Within **every** section and sub-section, order findings by importance — the most significant finding always comes first. Importance is a **reasoned judgement about what matters for this policy**, not a mechanical count of sub-groups or badges. Ask of each finding:
+
+- **How salient is this to the policy itself?** Does it bear on the policy's core mechanism and what it is trying to achieve, or is it a peripheral effect that would be true of many policies?
+- **How relevant is it to the intended outcomes?** Findings that bear directly on the policy's intent — and on any equity-related outcomes of interest the analyst stated in the specification — outrank findings about incidental effects.
+- **How consequential is the differential impact?** A severe divergence for one group can outrank a mild pattern across many groups.
+
+Grounding strength (from the evidence weighting section above) governs how *confidently* a finding is stated, not primarily where it ranks — a well-evidenced but peripheral finding should not displace a highly policy-salient one. When a top-ranked finding rests on reasoning rather than evidence, keep it top-ranked and flag the uncertainty.
+
+Lead each section with its single most important finding, stated plainly, before any supporting detail. Do not bury the headline finding mid-list. `key_findings` arrays in summary cards must follow the same ordering.
+
+**Themes must follow policy intent.** Where you group findings or recommendations under thematic headings, derive the themes from what the policy is trying to achieve and the analyst's stated outcomes of interest — not from generic analytical categories. A reader should be able to see, from the theme names alone, how the synthesis connects to what this policy is for.
+
+## Write findings that stand alone
+
+The analyst often reads only headings, bold lead-ins, and summary cards. Every key finding — in prose lead-ins and in `key_findings` arrays — must make complete sense without reading anything else: say who is affected, what changes for them, in which direction, and through what mechanism, in plain words. Avoid compressed shorthand ("access effects compound eligibility friction") that only becomes clear after reading the full section.
+
 ## Output structure
 
 Produce **three separate sections**. You MUST delimit each section so the system can route them to separate artifacts:
