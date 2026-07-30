@@ -975,6 +975,7 @@ export function ChatContainer() {
             isLoading={isLoading}
             stage={stage}
             onSelectPolicy={handleSelectPolicy}
+            onSelectSuggestion={handleSelectPolicy}
           />
           <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
             <ChatInput

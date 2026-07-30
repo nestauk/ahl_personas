@@ -9,15 +9,18 @@ import { renderGroundingBadges } from "@/lib/grounding-badges";
 const COMPLETE_SPEC_REGEX = /\s*<policy_spec>[\s\S]*?<\/policy_spec>\s*/g;
 const COMPLETE_SUBGROUPS_REGEX =
   /\s*<proposed_sub_groups>[\s\S]*?<\/proposed_sub_groups>\s*/g;
+const COMPLETE_SUGGESTIONS_REGEX =
+  /\s*<suggested_answers>[\s\S]*?<\/suggested_answers>\s*/g;
 
 const TRAILING_INCOMPLETE_BLOCK_REGEX =
-  /\s*<(?:policy_spec|proposed_sub_groups)>[\s\S]*$/;
+  /\s*<(?:policy_spec|proposed_sub_groups|suggested_answers)>[\s\S]*$/;
 const TRAILING_PARTIAL_TAG_REGEX = /\s*<[a-z_]{0,25}$/;
 
 function stripStructuredBlocks(content: string): string {
   let result = content
     .replace(COMPLETE_SPEC_REGEX, "")
-    .replace(COMPLETE_SUBGROUPS_REGEX, "");
+    .replace(COMPLETE_SUBGROUPS_REGEX, "")
+    .replace(COMPLETE_SUGGESTIONS_REGEX, "");
 
   result = result.replace(TRAILING_INCOMPLETE_BLOCK_REGEX, "");
 
@@ -26,7 +29,8 @@ function stripStructuredBlocks(content: string): string {
     const fragment = trailingMatch[0].trimStart();
     if (
       "<policy_spec>".startsWith(fragment) ||
-      "<proposed_sub_groups>".startsWith(fragment)
+      "<proposed_sub_groups>".startsWith(fragment) ||
+      "<suggested_answers>".startsWith(fragment)
     ) {
       result = result.slice(0, trailingMatch.index);
     }

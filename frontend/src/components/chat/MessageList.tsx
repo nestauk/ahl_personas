@@ -3,14 +3,19 @@
 import type { Message } from "ai";
 import { useCallback, useEffect, useRef } from "react";
 import type { ConversationStage } from "@/lib/types";
+import { parseSuggestedAnswers } from "@/lib/spec-helpers";
 import { MessageBubble } from "./MessageBubble";
 import { PolicyCards } from "./PolicyCards";
+
+const SKIP_ANSWER =
+  "Skip this question — treat it as an open question for the analysis.";
 
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
   stage: ConversationStage;
   onSelectPolicy: (description: string) => void;
+  onSelectSuggestion?: (answer: string) => void;
 }
 
 const NEAR_BOTTOM_THRESHOLD = 120;
@@ -20,6 +25,7 @@ export function MessageList({
   isLoading,
   stage,
   onSelectPolicy,
+  onSelectSuggestion,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -65,6 +71,11 @@ export function MessageList({
   const lastIdx = messages.length - 1;
   const lastIsAssistant = messages[lastIdx]?.role === "assistant";
 
+  const suggestions =
+    lastIsAssistant && !isLoading && stage === "specifying" && onSelectSuggestion
+      ? parseSuggestedAnswers(messages[lastIdx].content)
+      : [];
+
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -74,6 +85,27 @@ export function MessageList({
             message={message}
           />
         ))}
+        {suggestions.length > 0 && onSelectSuggestion && (
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((answer) => (
+              <button
+                key={answer}
+                type="button"
+                onClick={() => onSelectSuggestion(answer)}
+                className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-1.5 text-xs text-[var(--color-text)] transition-all hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              >
+                {answer}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => onSelectSuggestion(SKIP_ANSWER)}
+              className="rounded-full border border-dashed border-[var(--color-border)] px-3.5 py-1.5 text-xs text-[var(--color-text-muted)] transition-all hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            >
+              Skip — not sure
+            </button>
+          </div>
+        )}
         {isLoading && !lastIsAssistant && (
           <div className="flex justify-start">
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-3">

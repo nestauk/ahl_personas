@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -54,6 +54,19 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   const proseRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const scrollRafRef = useRef<number | null>(null);
+
+  // Sub-group reports open in summary view; the panel remounts per section
+  // (keyed by sectionId), so this resets on navigation. Sections mounted
+  // mid-stream stay expanded so live content never disappears under the reader.
+  const [expanded, setExpanded] = useState(isStreaming);
+  useEffect(() => {
+    if (isStreaming) setExpanded(true);
+  }, [isStreaming]);
+  const summaryOnly =
+    !expanded &&
+    !isStreaming &&
+    !!summaryCard &&
+    (sectionId?.startsWith("sg_") ?? false);
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -144,7 +157,22 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
           {summaryCard && sectionId && (
             <ArtifactSummaryCard card={summaryCard} sectionId={sectionId} />
           )}
-          {showBadgeLegendLink && (
+          {summaryOnly && (
+            <div className="mx-auto max-w-3xl">
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] transition-all hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              >
+                Read the full analysis
+              </button>
+              <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+                The full analysis explains each finding with evidence badges,
+                impact dimensions, and uncertainties.
+              </p>
+            </div>
+          )}
+          {!summaryOnly && showBadgeLegendLink && (
             <div className="mx-auto mb-3 max-w-3xl">
               <button
                 type="button"
@@ -155,29 +183,33 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
               </button>
             </div>
           )}
-          <div ref={proseRef} className="prose mx-auto max-w-3xl">
-            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-              {processed}
-            </Markdown>
-            {isStreaming && (
-              <div className="mt-2 flex items-center gap-1.5">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)]" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:150ms]" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:300ms]" />
+          {!summaryOnly && (
+            <>
+              <div ref={proseRef} className="prose mx-auto max-w-3xl">
+                <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                  {processed}
+                </Markdown>
+                {isStreaming && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)]" />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:150ms]" />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)] [animation-delay:300ms]" />
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-          <BadgePopoverManager
-            containerRef={proseRef}
-            content={processed}
-            rawEvidence={rawEvidence}
-            sectionType={sectionType}
-            confirmedSubGroups={confirmedSubGroups}
-            onNavigateToSection={onNavigateToSection}
-            onOpenEvidenceDrawer={onOpenEvidenceDrawer}
-            isStreaming={isStreaming}
-          />
+              <BadgePopoverManager
+                containerRef={proseRef}
+                content={processed}
+                rawEvidence={rawEvidence}
+                sectionType={sectionType}
+                confirmedSubGroups={confirmedSubGroups}
+                onNavigateToSection={onNavigateToSection}
+                onOpenEvidenceDrawer={onOpenEvidenceDrawer}
+                isStreaming={isStreaming}
+              />
+            </>
+          )}
         </>
       )}
     </div>
