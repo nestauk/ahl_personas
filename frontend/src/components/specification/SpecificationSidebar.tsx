@@ -807,20 +807,19 @@ export function SpecificationSidebar({
 
         {(spec.outcomes_of_interest ?? []).length > 0 && (
           <div className="mt-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               Outcomes of interest
-            </p>
-            <ul className="mt-1.5 space-y-1">
+            </div>
+            <div className="flex flex-wrap gap-1">
               {(spec.outcomes_of_interest ?? []).map((outcome) => (
-                <li
+                <span
                   key={outcome}
-                  className="flex gap-1.5 text-xs leading-snug text-[var(--color-text)]"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-[10px] leading-relaxed text-[var(--color-text-muted)]"
                 >
-                  <span className="mt-[2px] shrink-0 text-[var(--color-text-muted)]">•</span>
-                  <span>{outcome}</span>
-                </li>
+                  {outcome}
+                </span>
               ))}
-            </ul>
+            </div>
           </div>
         )}
 
