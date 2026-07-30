@@ -281,7 +281,7 @@ class _SynthesisSectionParser:
         return any(tail.startswith(p) for p in prefixes)
 
 
-SEARCH_EVIDENCE_TOOL = {
+_SEARCH_EVIDENCE_TOOL_CHAT_FORMAT = {
     "type": "function",
     "function": {
         "name": "search_evidence",
@@ -306,6 +306,12 @@ SEARCH_EVIDENCE_TOOL = {
             "required": ["query"],
         },
     },
+}
+
+# Responses API uses a flat tool shape (no nested "function" key).
+RESPONSES_SEARCH_EVIDENCE_TOOL = {
+    "type": "function",
+    **_SEARCH_EVIDENCE_TOOL_CHAT_FORMAT["function"],
 }
 
 
@@ -621,15 +627,14 @@ def _format_subgroup_modifiers(sub_group: dict[str, Any]) -> str:
 
 
 async def _stream_with_retry(
-    client: AsyncOpenAI,
+    create: Any,
     **kwargs: Any,
 ) -> Any:
-    """Call chat.completions.create with retry on transient errors."""
-    get_settings()
+    """Call an OpenAI create method (chat.completions or responses) with retry on transient errors."""
     last_error = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            return await client.chat.completions.create(**kwargs)
+            return await create(**kwargs)
         except APIError as exc:
             last_error = exc
             if exc.status_code not in _RETRY_STATUS_CODES or attempt == _MAX_RETRIES:
@@ -702,41 +707,46 @@ async def _stream_subgroup_with_tools(
     writing_progress_sent = False
     logger.info("[subgroup] START '%s' — calling LLM with search_evidence tool", sg_name)
 
+    # The Responses API is required for function tools on reasoning models
+    # (chat completions rejects tools + reasoning for GPT-5.6). Tool rounds
+    # continue server-side state via previous_response_id.
+    request_input: list[dict[str, Any]] = api_messages
+    previous_response_id: str | None = None
+
     while True:
         tool_call_round += 1
         round_start = time.monotonic()
         logger.info(
-            "[subgroup] '%s' round %d — sending to LLM (%d messages)",
-            sg_name, tool_call_round, len(api_messages),
+            "[subgroup] '%s' round %d — sending to LLM (%d input items)",
+            sg_name, tool_call_round, len(request_input),
         )
 
         subgroup_kwargs: dict[str, Any] = dict(
             model=settings.openai_analysis_model,
-            messages=api_messages,
-            tools=[SEARCH_EVIDENCE_TOOL],
+            input=request_input,
+            tools=[RESPONSES_SEARCH_EVIDENCE_TOOL],
             stream=True,
-            stream_options={"include_usage": True},
             name="subgroup-analysis",
-            metadata={"subgroup": sg_name, "tool_round": tool_call_round},
+            metadata={"subgroup": sg_name[:512], "tool_round": str(tool_call_round)},
         )
+        if previous_response_id:
+            subgroup_kwargs["previous_response_id"] = previous_response_id
         if settings.openai_analysis_reasoning_effort:
-            subgroup_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
+            subgroup_kwargs["reasoning"] = {
+                "effort": settings.openai_analysis_reasoning_effort,
+            }
 
-        stream = await _stream_with_retry(client, **subgroup_kwargs)
+        stream = await _stream_with_retry(client.responses.create, **subgroup_kwargs)
 
         collected_text: list[str] = []
-        tool_calls_by_index: dict[int, dict[str, Any]] = {}
-        finish_reason = None
+        function_calls: list[Any] = []
+        response_id: str | None = None
         first_token = True
 
-        async for chunk in stream:
-            if not chunk.choices:
-                continue  # final usage-only chunk from include_usage
-            choice = chunk.choices[0]
-            finish_reason = choice.finish_reason
-            delta = choice.delta
+        async for event in stream:
+            etype = getattr(event, "type", "")
 
-            if delta.content:
+            if etype == "response.output_text.delta":
                 if first_token:
                     logger.info(
                         "[subgroup] '%s' round %d — first text token after %.1fs",
@@ -756,58 +766,40 @@ async def _stream_subgroup_with_tools(
                             "Writing detailed impact analysis for this sub-group...\n\n",
                         )
                         writing_progress_sent = True
-                collected_text.append(delta.content)
-                yield ("text", delta.content)
+                collected_text.append(event.delta)
+                yield ("text", event.delta)
 
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in tool_calls_by_index:
-                        tool_calls_by_index[idx] = {
-                            "id": "",
-                            "function": {"name": "", "arguments": ""},
-                        }
-                    tc = tool_calls_by_index[idx]
-                    if tc_delta.id:
-                        tc["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            tc["function"]["name"] += tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            tc["function"]["arguments"] += tc_delta.function.arguments
+            elif etype == "response.output_item.done":
+                item = event.item
+                if getattr(item, "type", "") == "function_call":
+                    function_calls.append(item)
+
+            elif etype == "response.completed":
+                response_id = event.response.id
+
+            elif etype in ("response.failed", "response.incomplete", "error"):
+                detail = getattr(event, "response", None) or event
+                raise RuntimeError(f"Responses stream ended abnormally: {detail}")
 
         round_elapsed = time.monotonic() - round_start
 
-        if finish_reason == "tool_calls" and tool_calls_by_index:
+        if function_calls:
             had_tool_calls = True
+            previous_response_id = response_id
+            request_input = []
             logger.info(
                 "[subgroup] '%s' round %d — LLM requested %d tool call(s) after %.1fs",
-                sg_name, tool_call_round, len(tool_calls_by_index), round_elapsed,
+                sg_name, tool_call_round, len(function_calls), round_elapsed,
             )
 
-            assistant_msg: dict[str, Any] = {"role": "assistant"}
-            if collected_text:
-                assistant_msg["content"] = "".join(collected_text)
-            else:
-                assistant_msg["content"] = None
-            assistant_msg["tool_calls"] = [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": tc["function"],
-                }
-                for tc in tool_calls_by_index.values()
-            ]
-            api_messages.append(assistant_msg)
-
-            for tc in tool_calls_by_index.values():
-                fn_name = tc["function"]["name"]
+            for fc in function_calls:
+                fn_name = fc.name
                 if fn_name == "search_evidence":
                     try:
-                        args = json.loads(tc["function"]["arguments"])
+                        args = json.loads(fc.arguments)
                         query = args.get("query", "")
                     except json.JSONDecodeError:
-                        query = tc["function"]["arguments"]
+                        query = fc.arguments
 
                     yield ("data", {"type": "evidence_search", "query": query})
 
@@ -851,17 +843,16 @@ async def _stream_subgroup_with_tools(
                 else:
                     tool_response = f"Unknown tool: {fn_name}"
 
-                api_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": tool_response,
+                request_input.append({
+                    "type": "function_call_output",
+                    "call_id": fc.call_id,
+                    "output": tool_response,
                 })
 
             # Keepalive before the next LLM round — prevents the browser
             # from flagging the connection as unresponsive during the wait
             # for the LLM to process tool results and start generating.
             yield ("data", {"type": "heartbeat"})
-            collected_text = []
         else:
             text_len = sum(len(t) for t in collected_text)
             logger.info(
@@ -939,7 +930,7 @@ async def _stream_synthesis(
     if settings.openai_analysis_reasoning_effort:
         synthesis_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
 
-    stream = await _stream_with_retry(client, **synthesis_kwargs)
+    stream = await _stream_with_retry(client.chat.completions.create, **synthesis_kwargs)
 
     first_token = True
     synth_start = time.monotonic()
