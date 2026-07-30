@@ -24,6 +24,7 @@ interface PolicySummaryData {
   name: string;
   summary: string;
   openQuestions: string[];
+  outcomesOfInterest: string[];
   taxonomyMapping: Record<string, string[]>;
 }
 
@@ -52,6 +53,13 @@ function buildSummaryContent(data: PolicySummaryData): string {
     for (const [key, values] of entries) {
       const label = TAXONOMY_LABELS[key] || key.replace(/_/g, " ");
       content += `- **${label}**: ${values.join(", ")}\n`;
+    }
+  }
+
+  if (data.outcomesOfInterest.length > 0) {
+    content += "\n### Outcomes of interest\n\n";
+    for (const o of data.outcomesOfInterest) {
+      content += `- ${o}\n`;
     }
   }
 

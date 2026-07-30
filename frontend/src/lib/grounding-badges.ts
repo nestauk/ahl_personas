@@ -32,10 +32,8 @@ function escapeAttr(s: string): string {
 
 function renderSgPill(sgToken: string, hint: string | undefined, detail?: string): string {
   const normalised = sgToken.toUpperCase();
-  const inlineLabel =
-    hint && hint.trim().length > 0 && hint.trim().length <= 36
-      ? `${normalised}: ${hint.trim()}`
-      : normalised;
+  // Compact inline label: SG token only; any hint stays in the popover detail.
+  const inlineLabel = normalised;
   const attrs = [
     'class="badge-evidence"',
     detail ? `data-badge-detail="${escapeAttr(detail.trim())}"` : "",
@@ -113,16 +111,18 @@ export function renderGroundingBadges(content: string): string {
           typedLabel === "Evidence" ? "badge-evidence"
           : typedLabel === "Analogical" ? "badge-analogical"
           : "badge-inferred";
-        const label = `${typedLabel}: ${sourceRef}`;
-        return `<span class="${badgeClass}" data-badge-detail="${encoded}" data-badge-type="${typedLabel.toLowerCase()}">${label}</span>`;
+        // Compact inline label: type only. The source lives in the tooltip
+        // and popover (via data-badge-ref).
+        const ref = escapeAttr((sourceRef as string).trim());
+        return `<span class="${badgeClass}" data-badge-detail="${encoded}" data-badge-type="${typedLabel.toLowerCase()}" data-badge-ref="${ref}" title="${ref}">${typedLabel}</span>`;
       }
       if (typedLabel === "Sub-group") {
         const ref = (sourceRef as string).trim();
         return `<span class="badge-evidence" data-badge-detail="${encoded}" data-badge-type="subgroup" data-badge-ref="${escapeAttr(ref)}" title="${escapeAttr(ref)}">Sub-group</span>`;
       }
       if (typedLabel === "Cross-cutting") {
-        const label = `Cross-cutting: ${sourceRef}`;
-        return `<span class="badge-crosscutting" data-badge-detail="${encoded}" data-badge-type="crosscutting">${label}</span>`;
+        const ref = escapeAttr((sourceRef as string).trim());
+        return `<span class="badge-crosscutting" data-badge-detail="${encoded}" data-badge-type="crosscutting" data-badge-ref="${ref}" title="${ref}">Cross-cutting</span>`;
       }
       if (sgToken) {
         return renderSgPill(sgToken as string, sgHint as string | undefined, trimmedDetail);

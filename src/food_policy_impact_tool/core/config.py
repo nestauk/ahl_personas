@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables or .env file."""
 
     openai_api_key: str
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-5.6-terra"
     openai_embedding_model: str = "text-embedding-3-small"
 
     openai_scan_model: str | None = None
@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     chunk_overlap: int = 400
     retrieval_top_k: int = 10
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        # Tolerate unrelated vars in .env (e.g. LANGFUSE_* read by the SDK).
+        "extra": "ignore",
+    }
 
     @model_validator(mode="after")
     def _fill_per_task_model_defaults(self) -> "Settings":

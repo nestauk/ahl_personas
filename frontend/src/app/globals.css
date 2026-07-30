@@ -133,13 +133,13 @@ body {
 .badge-moderate,
 .badge-low {
   display: inline;
-  padding: 0.1em 0.5em;
+  padding: 0.05em 0.4em;
   border-radius: 9999px;
-  font-size: 0.75em;
+  font-size: 0.65em;
   font-weight: 500;
   white-space: nowrap;
-  vertical-align: baseline;
-  line-height: 1.8;
+  vertical-align: 0.08em;
+  line-height: 1.4;
 }
 
 .badge-evidence {

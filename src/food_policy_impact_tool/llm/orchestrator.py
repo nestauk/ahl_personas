@@ -7,12 +7,23 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from openai import APIError, AsyncOpenAI
+from dotenv import load_dotenv
 
-from food_policy_impact_tool.core.config import get_settings
-from food_policy_impact_tool.evidence.retriever import HybridRetriever
-from food_policy_impact_tool.models.chat import ChatMessage, ConversationStage, SpecMetadata
-from food_policy_impact_tool.models.evidence import RetrievalResult
+# Langfuse reads its credentials from os.environ, and pydantic-settings does
+# not export .env values there — load them before the langfuse import.
+load_dotenv()
+
+from langfuse.openai import AsyncOpenAI  # noqa: E402 — drop-in OpenAI wrapper
+from openai import APIError  # noqa: E402
+
+from food_policy_impact_tool.core.config import get_settings  # noqa: E402
+from food_policy_impact_tool.evidence.retriever import HybridRetriever  # noqa: E402
+from food_policy_impact_tool.models.chat import (  # noqa: E402
+    ChatMessage,
+    ConversationStage,
+    SpecMetadata,
+)
+from food_policy_impact_tool.models.evidence import RetrievalResult  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -583,7 +594,10 @@ def _format_subgroup_modifiers(sub_group: dict[str, Any]) -> str:
         shared = cat_pattern.get("shared_reasoning", "")
         if shared:
             lines.append(f"\nShared mechanism: {shared}")
-        lines.append("\nAnalyse the shared pattern with examples from across these modifiers, not a deep-dive into one.")
+        lines.append(
+            "\nAnalyse the shared pattern with examples from across these "
+            "modifiers, not a deep-dive into one."
+        )
 
         non_categorical_mods = [
             m for m in sub_group.get("modifiers", [])
@@ -611,7 +625,7 @@ async def _stream_with_retry(
     **kwargs: Any,
 ) -> Any:
     """Call chat.completions.create with retry on transient errors."""
-    settings = get_settings()
+    get_settings()
     last_error = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
@@ -701,6 +715,9 @@ async def _stream_subgroup_with_tools(
             messages=api_messages,
             tools=[SEARCH_EVIDENCE_TOOL],
             stream=True,
+            stream_options={"include_usage": True},
+            name="subgroup-analysis",
+            metadata={"subgroup": sg_name, "tool_round": tool_call_round},
         )
         if settings.openai_analysis_reasoning_effort:
             subgroup_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
@@ -713,6 +730,8 @@ async def _stream_subgroup_with_tools(
         first_token = True
 
         async for chunk in stream:
+            if not chunk.choices:
+                continue  # final usage-only chunk from include_usage
             choice = chunk.choices[0]
             finish_reason = choice.finish_reason
             delta = choice.delta
@@ -914,6 +933,8 @@ async def _stream_synthesis(
         model=settings.openai_analysis_model,
         messages=api_messages,
         stream=True,
+        stream_options={"include_usage": True},
+        name="equity-synthesis",
     )
     if settings.openai_analysis_reasoning_effort:
         synthesis_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
@@ -923,6 +944,8 @@ async def _stream_synthesis(
     first_token = True
     synth_start = time.monotonic()
     async for chunk in stream:
+        if not chunk.choices:
+            continue  # final usage-only chunk from include_usage
         delta = chunk.choices[0].delta
         if delta.content:
             if first_token:
@@ -953,7 +976,7 @@ async def stream_analysis_chain(
     Yields:
         Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
     """
-    settings = get_settings()
+    get_settings()
     client = _get_client()
 
     chain_start = time.monotonic()
@@ -985,8 +1008,6 @@ async def stream_analysis_chain(
             "name": sg_name,
             "status": "active",
         })
-
-        yield ("text", f"Analysing impacts for **{sg_name}**...\n\n")
 
         section_id = f"sg_{i}"
         try:
@@ -1042,22 +1063,25 @@ async def stream_analysis_chain(
                 "index": i,
                 "status": "complete",
             })
-            summary_line = f" *{step_summary}*" if step_summary else ""
-            if i + 1 < n:
-                next_name = confirmed_subgroups[i + 1].get(
-                    "name", f"Sub-group {i + 2}",
-                )
-                yield (
-                    "text",
-                    f"✓ Completed analysis for **{sg_name}**.{summary_line} "
-                    f"Moving to **{next_name}**...\n\n",
-                )
-            else:
-                yield (
-                    "text",
-                    f"✓ Completed analysis for **{sg_name}**.{summary_line} "
-                    f"All sub-group analyses complete.\n\n",
-                )
+            # Post a substantive per-sub-group update to the chat: impact
+            # direction plus top findings, so the chat carries the narrative
+            # without the analyst opening the full report.
+            headline = f"**{sg_name}** ({i + 1}/{n})"
+            finding_lines: list[str] = []
+            if summary_card:
+                direction = summary_card.get("impact_direction")
+                if isinstance(direction, str) and direction.strip():
+                    headline += f" — {direction.strip()}"
+                findings = summary_card.get("key_findings")
+                if isinstance(findings, list):
+                    finding_lines = [
+                        f"- {f.strip()}"
+                        for f in findings
+                        if isinstance(f, str) and f.strip()
+                    ][:3]
+            elif step_summary:
+                headline += f" — {step_summary}"
+            yield ("text", "\n".join([headline, *finding_lines]) + "\n\n")
         except Exception:
             logger.exception(
                 "[chain] Sub-group %d/%d FAILED: '%s'", i + 1, n, sg_name,
@@ -1116,7 +1140,7 @@ async def stream_synthesis_only(
     Yields:
         Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
     """
-    settings = get_settings()
+    get_settings()
     client = _get_client()
 
     policy_spec = _extract_policy_spec_from_history(messages)
@@ -1307,6 +1331,8 @@ async def stream_response(
             model=settings.openai_scan_model,
             messages=api_messages,
             stream=True,
+            stream_options={"include_usage": True},
+            name="relevance-scan",
         )
         if settings.openai_scan_reasoning_effort:
             scan_kwargs["reasoning_effort"] = settings.openai_scan_reasoning_effort
@@ -1326,6 +1352,8 @@ async def stream_response(
         line_buffer = ""
 
         async for chunk in stream:
+            if not chunk.choices:
+                continue  # final usage-only chunk from include_usage
             delta = chunk.choices[0].delta
             if delta.content:
                 full_response.append(delta.content)
@@ -1392,16 +1420,28 @@ async def stream_response(
             })
 
             scan_summary_text = ""
-            if scan_card and isinstance(scan_card.get("summary"), str):
-                scan_summary_text = f" *{scan_card['summary']}*"
+            finding_bullets = ""
+            if scan_card:
+                if isinstance(scan_card.get("summary"), str):
+                    scan_summary_text = f" {scan_card['summary']}"
+                findings = scan_card.get("key_findings")
+                if isinstance(findings, list):
+                    lines = [
+                        f"- {f.strip()}"
+                        for f in findings
+                        if isinstance(f, str) and f.strip()
+                    ][:3]
+                    if lines:
+                        finding_bullets = "\n\n" + "\n".join(lines)
 
             summary = (
-                f"I've assessed all population characteristics against this policy. "
-                f"{high_count} rated as highly relevant — "
-                f"see the full assessment in the analysis panel."
-                f"{scan_summary_text} "
+                f"I've assessed all population characteristics against this policy — "
+                f"{high_count} rated as highly relevant."
+                f"{scan_summary_text}"
+                f"{finding_bullets}\n\n"
                 f"I've proposed {subgroup_count} sub-groups for detailed analysis. "
-                f"Review and confirm them in the sidebar."
+                f"Review and confirm them in the sidebar — the full relevance "
+                f"assessment is available in the analysis panel if you want the detail."
             )
             yield ("text", summary)
         else:
@@ -1441,6 +1481,8 @@ async def stream_response(
         model=model,
         messages=api_messages,
         stream=True,
+        stream_options={"include_usage": True},
+        name="socratic-specification" if stage == "specifying" else "evidence-chat",
     )
     if reasoning_effort:
         chat_kwargs["reasoning_effort"] = reasoning_effort
@@ -1449,6 +1491,8 @@ async def stream_response(
 
     full_response = []
     async for chunk in stream:
+        if not chunk.choices:
+            continue  # final usage-only chunk from include_usage
         delta = chunk.choices[0].delta
         if delta.content:
             full_response.append(delta.content)

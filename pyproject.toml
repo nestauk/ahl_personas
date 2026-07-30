@@ -12,6 +12,7 @@ dependencies = [
     "openai",
     "qdrant-client",
     "pymupdf",
+    "langfuse>=4.14.2",
 ]
 
 [project.optional-dependencies]

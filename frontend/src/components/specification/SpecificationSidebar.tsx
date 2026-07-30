@@ -123,6 +123,14 @@ function CompactSpecView({
               <TaxonomyPills taxonomyMapping={spec.taxonomy_mapping} />
             </div>
           )}
+          {(spec.outcomes_of_interest ?? []).length > 0 && (
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+              <span>
+                {(spec.outcomes_of_interest ?? []).length} outcome
+                {(spec.outcomes_of_interest ?? []).length !== 1 ? "s" : ""} of interest
+              </span>
+            </div>
+          )}
           {spec.open_questions.length > 0 && (
             <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
               <HelpCircle size={12} />
@@ -795,6 +803,25 @@ export function SpecificationSidebar({
           <p className="text-xs text-[var(--color-text-muted)]">
             Describe a policy in the chat to begin specification.
           </p>
+        )}
+
+        {(spec.outcomes_of_interest ?? []).length > 0 && (
+          <div className="mt-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Outcomes of interest
+            </p>
+            <ul className="mt-1.5 space-y-1">
+              {(spec.outcomes_of_interest ?? []).map((outcome) => (
+                <li
+                  key={outcome}
+                  className="flex gap-1.5 text-xs leading-snug text-[var(--color-text)]"
+                >
+                  <span className="mt-[2px] shrink-0 text-[var(--color-text-muted)]">•</span>
+                  <span>{outcome}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {spec.open_questions.length > 0 && (

@@ -244,13 +244,12 @@ export function ChatContainer() {
       return changed ? next : prev;
     });
 
+    // Streaming sections no longer claim the panel — progress lives in the
+    // sidebar and chat; the analyst opens reports when they choose to.
     if (shouldActivateScan) {
-      if (activeSectionRef.current === null) {
-        setActiveSectionIfChanged("scan");
-      }
       setStreamingSectionIfChanged("scan");
     }
-  }, [setActiveSectionIfChanged, setStreamingSectionIfChanged]);
+  }, [setStreamingSectionIfChanged]);
 
   const lastProcessedDataIdx = useRef(-1);
 
@@ -330,9 +329,6 @@ export function ChatContainer() {
 
         if (isSynthesisSection(sectionId)) {
           setStreamingSectionIfChanged(sectionId);
-          if (activeSectionRef.current === null) {
-            setActiveSectionIfChanged(sectionId);
-          }
         }
 
         if (flushRafRef.current === null) {
@@ -358,9 +354,6 @@ export function ChatContainer() {
               });
               return next;
             });
-            if (activeSectionRef.current === null) {
-              setActiveSectionIfChanged("scan");
-            }
             setStreamingSectionIfChanged("scan");
           } else if (step === "synthesis") {
             setAnalysisSections((prev) => {
@@ -377,9 +370,6 @@ export function ChatContainer() {
               return next;
             });
             setStreamingSectionIfChanged("equity_assessment");
-            if (activeSectionRef.current === null) {
-              setActiveSectionIfChanged("equity_assessment");
-            }
           } else {
             const sectionId = `sg_${index ?? 0}`;
             setAnalysisSections((prev) => {
@@ -392,9 +382,6 @@ export function ChatContainer() {
             });
             setStreamingSectionIfChanged(sectionId);
             setActiveStepPhaseIfChanged(null);
-            if (activeSectionRef.current === null) {
-              setActiveSectionIfChanged(sectionId);
-            }
           }
         }
 
@@ -929,6 +916,7 @@ export function ChatContainer() {
         name: specMeta.spec.policy_name || "Policy Summary",
         summary: specMeta.spec.policy_summary,
         openQuestions: specMeta.spec.open_questions,
+        outcomesOfInterest: specMeta.spec.outcomes_of_interest ?? [],
         taxonomyMapping: specMeta.spec.taxonomy_mapping,
       }
     : null;
