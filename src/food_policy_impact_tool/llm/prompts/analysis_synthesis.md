@@ -142,7 +142,7 @@ Then one `### {outcome}` heading per outcome (or aim), each with 1 or 2 bullets 
 
 ## Step summaries (required)
 
-At the end of **each** of the three sections — after that section's content and **before** the `<summary_card>` block — append a one-sentence sidebar summary in a `<step_summary>` tag (≤ 20 words). This sentence should capture the single most important takeaway for that section.
+At the end of **each** of the three sections — after that section's content and **before** the `<summary_card>` block — append a one-sentence progress summary in a `<step_summary>` tag (≤ 20 words). This sentence should capture the single most important takeaway for that section.
 
 Example:
 ```

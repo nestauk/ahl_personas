@@ -40,7 +40,7 @@ export function ChatInput({
     <div className="px-6 py-4">
       <form
         onSubmit={onSubmit}
-        className="mx-auto flex max-w-3xl items-end gap-3"
+        className="mx-auto flex max-w-[640px] items-end gap-3"
       >
         <textarea
           value={input}

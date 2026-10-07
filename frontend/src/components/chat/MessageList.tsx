@@ -16,7 +16,7 @@ interface MessageListProps {
   stage: ConversationStage;
   onSelectPolicy: (description: string) => void;
   onSelectSuggestion?: (answer: string) => void;
-  actions?: { label: string; onClick: () => void }[];
+  actions?: { label: string; onClick: () => void; muted?: boolean }[];
 }
 
 const NEAR_BOTTOM_THRESHOLD = 120;
@@ -80,7 +80,7 @@ export function MessageList({
 
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="mx-auto flex max-w-[640px] flex-col gap-4">
         {messages.map((message) => (
           <MessageBubble
             key={message.id}
@@ -117,7 +117,11 @@ export function MessageList({
                 key={a.label}
                 type="button"
                 onClick={a.onClick}
-                className="rounded-full bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                className={
+                  a.muted
+                    ? "rounded-full border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text)]"
+                    : "rounded-full bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                }
               >
                 {a.label}
               </button>

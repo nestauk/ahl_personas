@@ -1527,8 +1527,9 @@ async def stream_response(
                 f"{scan_summary_text}"
                 f"{finding_bullets}\n\n"
                 f"I've proposed {subgroup_count} sub-groups for detailed analysis. "
-                f"Review and confirm them in the sidebar — the full relevance "
-                f"assessment is available in the analysis panel if you want the detail."
+                f"Review them on the right (remove any that aren't relevant), then "
+                f"run the analysis from the chat. The full relevance assessment is "
+                f"under More → Population scan if you want the detail."
             )
             yield ("text", summary)
         else:

@@ -6,7 +6,8 @@ import type { JSONValue } from "ai";
 import { ChatInput } from "./ChatInput";
 import { MessageList } from "./MessageList";
 import { Header } from "../ui/Header";
-import { SpecificationSidebar } from "../specification/SpecificationSidebar";
+import { ProgressPane } from "../analysis/ProgressPane";
+import { SectionSwitcher } from "../analysis/SectionSwitcher";
 import { AnalysisView } from "../analysis/AnalysisView";
 import { EvidenceDrawer } from "../evidence/EvidenceDrawer";
 import { MethodologyDrawer } from "../methodology/MethodologyDrawer";
@@ -46,7 +47,6 @@ import {
   SYNTHESIS_SECTION_IDS,
   SYNTHESIS_SECTION_LABELS,
   buildAnalysisTexts,
-  buildSgLabels,
   deriveSynthesisSubstepStatus,
   isSynthesisSection,
   stripArtifactTailBlocks,
@@ -231,7 +231,7 @@ export function ChatContainer() {
     });
 
     // Streaming sections no longer claim the panel — progress lives in the
-    // sidebar and chat; the analyst opens reports when they choose to.
+    // Progress pane and chat; the analyst opens reports when they choose to.
     if (shouldActivateScan) {
       setStreamingSectionIfChanged("scan");
     }
@@ -643,6 +643,7 @@ export function ChatContainer() {
     ]);
 
     setStage("analysing");
+    setActiveSectionIfChanged(null);
     setAnalysisProgress({
       steps: [{ step: "scan", status: "active", startedAt: Date.now() }],
       isComplete: false,
@@ -655,7 +656,7 @@ export function ChatContainer() {
           "I've confirmed the policy specification. Please assess population relevance and propose sub-groups for equity impact analysis.",
       });
     }, 100);
-  }, [setMessages, append]);
+  }, [setMessages, append, setActiveSectionIfChanged]);
 
   const handleRunAnalysis = useCallback(() => {
     const subgroups = confirmedSubGroupsRef.current;
@@ -718,10 +719,18 @@ export function ChatContainer() {
     [analysisProgress, streamingSection, analysisSections],
   );
 
-  const sgLabels = useMemo(
-    () => buildSgLabels(confirmedSubGroups?.length ?? 0),
-    [confirmedSubGroups],
-  );
+  // Open the Equity Assessment once synthesis lands, unless the analyst has
+  // already picked something (null = default Progress view).
+  useEffect(() => {
+    if (
+      synthesisComplete &&
+      stage === "chatting" &&
+      activeSectionRef.current === null &&
+      analysisSections.get("equity_assessment")?.content
+    ) {
+      setActiveSectionIfChanged("equity_assessment");
+    }
+  }, [synthesisComplete, stage, analysisSections, setActiveSectionIfChanged]);
 
   // Build the methodology audit card when analysis completes
   const auditCardBuiltRef = useRef(false);
@@ -828,29 +837,12 @@ export function ChatContainer() {
   }, [setActiveSectionIfChanged]);
 
   // --- Layout logic ---
-  const hasSummary = !!specMeta.spec.policy_summary;
-  const showArtifacts = hasSummary || analysisSections.size > 0;
-
   const analysisRunning =
     analysisProgress.steps.some(
       (s) =>
         (s.step === "subgroup" || s.step === "synthesis") &&
         (s.status === "active" || s.status === "complete" || s.status === "error"),
     );
-
-  const chatWidth = !showArtifacts
-    ? "flex-1"
-    : stage === "specifying"
-      ? "w-[60%]"
-      : stage === "analysing"
-        ? "w-[35%]"
-        : "w-[40%]";
-
-  const artifactsWidth = stage === "specifying"
-    ? "w-[40%]"
-    : stage === "analysing"
-      ? "w-[65%]"
-      : "w-[60%]";
 
   const chatDisabled = stage === "analysing" && (isLoading || analysisRunning);
 
@@ -862,9 +854,11 @@ export function ChatContainer() {
   );
   if (streamingSection) streamingSections.add(streamingSection);
 
-  const chatActions: { label: string; onClick: () => void }[] = [];
+  const chatActions: { label: string; onClick: () => void; muted?: boolean }[] = [];
   if (stage === "specifying" && specMeta.spec.ready_for_analysis) {
     chatActions.push({ label: "Proceed to analysis", onClick: handleProceed });
+  } else if (stage === "specifying" && specMeta.spec.policy_summary) {
+    chatActions.push({ label: "Proceed anyway", onClick: handleProceed, muted: true });
   }
   if (
     stage === "analysing" &&
@@ -888,6 +882,37 @@ export function ChatContainer() {
       }
     : null;
 
+  // Context pane: Progress while analysing (null = default), reports after.
+  // ponytail: a run interrupted before synthesis lands in "chatting" with no
+  // reports, so Progress stays the default there too.
+  const hasRun = stage === "chatting" && analysisProgress.steps.length > 0;
+  const hasReports = !!analysisSections.get("equity_assessment")?.content;
+  const showProgress =
+    activeSection === "progress" ||
+    (activeSection === null && (stage === "analysing" || (hasRun && !hasReports)));
+  const moreItems: [string, string][] = [
+    ...(policySummary ? [["policy_summary", "Policy summary"] as [string, string]] : []),
+    ...(analysisSections.has("scan") ? [["scan", "Population scan"] as [string, string]] : []),
+    ["progress", "Run details"],
+    ...(auditCardData ? [["methodology", "Methodology"] as [string, string]] : []),
+  ];
+  const subGroupItems: [string, string][] = (confirmedSubGroups ?? []).map(
+    (sg, i) => [`sg_${i}`, sg.name],
+  );
+  const progressPane = (
+    <ProgressPane
+      proposedSubGroups={proposedSubGroups}
+      confirmedSubGroups={confirmedSubGroups}
+      analysisProgress={analysisProgress}
+      onRemoveSubGroup={handleRemoveSubGroup}
+      onSelectSection={handleSelectSection}
+      synthesisSubsteps={synthesisSubsteps}
+      streamingSection={streamingSection}
+      scanCategoryProgress={scanCategoryProgress}
+      hasAuditCard={auditCardData !== null}
+    />
+  );
+
   return (
     <div className="flex h-screen flex-col">
       <Header
@@ -898,26 +923,8 @@ export function ChatContainer() {
         onOpenMethodology={() => handleOpenMethodologyDrawer()}
       />
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar (left, fixed width) */}
-        <SpecificationSidebar
-          spec={specMeta.spec}
-          stage={stage}
-          policyName={specMeta.spec.policy_name}
-          onProceed={handleProceed}
-          proposedSubGroups={proposedSubGroups}
-          confirmedSubGroups={confirmedSubGroups}
-          analysisProgress={analysisProgress}
-          onRemoveSubGroup={handleRemoveSubGroup}
-          onSelectSection={handleSelectSection}
-          synthesisSubsteps={synthesisSubsteps}
-          sgLabels={sgLabels}
-          streamingSection={streamingSection}
-          scanCategoryProgress={scanCategoryProgress}
-          hasAuditCard={auditCardData !== null}
-        />
-
-        {/* Chat (centre, always present) */}
-        <div className={`flex min-h-0 flex-col ${chatWidth}`}>
+        {/* Chat (left) */}
+        <div className="flex min-h-0 w-[45%] min-w-[420px] flex-col">
           <MessageList
             messages={messages}
             isLoading={isLoading}
@@ -938,11 +945,36 @@ export function ChatContainer() {
           </div>
         </div>
 
-        {/* Artifacts panel (right, conditional) */}
-        {showArtifacts && (
-          <div
-            className={`flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-border)] ${artifactsWidth}`}
-          >
+        {/* Context pane (right) — content follows the stage */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-l border-[var(--color-border)]">
+          {hasRun ? (
+            <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-2">
+              <SectionSwitcher
+                active={showProgress ? "progress" : activeSection}
+                subGroups={subGroupItems}
+                more={moreItems}
+                reportsReady={hasReports}
+                onSelect={handleSelectSection}
+              />
+            </div>
+          ) : stage === "analysing" && !showProgress ? (
+            <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-2">
+              <button
+                type="button"
+                onClick={() => setActiveSectionIfChanged(null)}
+                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              >
+                ← Progress
+              </button>
+            </div>
+          ) : null}
+          {showProgress ? (
+            progressPane
+          ) : !policySummary && analysisSections.size === 0 ? (
+            <div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--color-text-muted)]">
+              The policy summary will appear here as you describe the policy.
+            </div>
+          ) : (
             <AnalysisView
               summaryCards={summaryCards}
               policySummary={policySummary}
@@ -958,8 +990,8 @@ export function ChatContainer() {
               onOpenMethodologyDrawer={handleOpenMethodologyDrawer}
               auditCardData={auditCardData}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <EvidenceDrawer

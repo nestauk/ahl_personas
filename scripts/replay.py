@@ -301,6 +301,8 @@ async def run(stage: str, fx: dict, args: argparse.Namespace) -> tuple[Collector
     checks: list[str] = []
     settings = get_settings()
     # ponytail: the local Qdrant store is single-process; only open it for stages that search.
+    # ponytail: the local Qdrant store is single-process; Qdrant raises a clear error if
+    # the dev backend holds it, so only open it for stages that search.
     store = EvidenceStore() if stage in ("scan", "subgroup", "chat", "chain") else None
     retriever = HybridRetriever(store) if store else None
     try:

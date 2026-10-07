@@ -128,9 +128,9 @@ Each bullet starts with a bold lead-in of a few words, then states the pathway (
   - NOT: **Convenience store reliance means capped items are directly relevant, but tight margins raise de-stocking risk.**
 - Prefer bullets over prose. One claim per bullet.
 
-## Sidebar summary (required)
+## Progress summary (required)
 
-At the very end of your analysis, after all sections above, output a `<step_summary>` tag containing a single sentence (maximum 20 words) summarising the key finding for this sub-group. This is used for the progress sidebar, not the full analysis.
+At the very end of your analysis, after all sections above, output a `<step_summary>` tag containing a single sentence (maximum 20 words) summarising the key finding for this sub-group. This is shown in the run-progress view, not the full analysis.
 
 Example: `<step_summary>Price caps deliver outsized savings but convenience store de-stocking risks uneven access.</step_summary>`
 
@@ -162,7 +162,7 @@ Example:
 
 This summary card appears at the top of the artifact in the reading panel — make it scannable.
 
-**Every `key_findings` string must stand alone.** By default the analyst sees only the summary card, not the full analysis — each finding must make complete sense on its own. State who is affected, what changes for them, in which direction, and through what mechanism, in plain words. Order the array most important first.
+**Every `key_findings` string must stand alone.** By default the analyst sees only the summary card, not the full analysis — each finding must make complete sense on its own. State who is affected, what changes for them, in which direction, and through what mechanism, in plain words. The card sits under this sub-group's name, so do not open every finding with the full group name: say "these households", "those who shop at convenience stores", or name the affected subset. Order the array most important first.
 
 - Good: "Because this group shops mainly at convenience stores, price caps save them proportionally more than supermarket shoppers — but thin margins mean those stores may stop stocking capped items."
 - Bad: "De-stocking risk undermines realised savings" (unintelligible without the full analysis).

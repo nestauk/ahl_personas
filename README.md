@@ -107,6 +107,8 @@ uv run python scripts/replay.py chain     fixtures/<new>.json --save-fixture   #
 
 Each run prints pass/fail checks against the prompt's own budgets (headings, word counts, badge integrity, card fields, chips) and writes `replays/<fixture>-<stage>-<timestamp>.md` with what the analyst would see followed by the raw output. Diff two replay files to compare a prompt edit. Synthesis and chat replays reuse the saved sub-group texts, so they take under a minute. Timings and token counts for every replay are in Langfuse under the usual call names.
 
+The local Qdrant store is single-process, so stop the backend (`make backend` / `make dev`) before running `scan`, `subgroup`, `chat` or `chain` replays; `synthesis` and `socratic` don't search and can run alongside it.
+
 Fixtures are JSON files in `fixtures/` with the policy spec, proposed sub-groups and saved section texts. To add a policy, write a fixture with `name`, `policy_description` and `spec`, then run `chain --save-fixture` once.
 
 ## Documentation

@@ -274,7 +274,7 @@ The JSON must follow this exact structure:
 
 Rules for the JSON:
 - `id` should be sequential: `sg_1`, `sg_2`, etc.
-- `name` is the plain-English name (3–7 words, no "+"). It is shown in the sidebar, in chat and in follow-up suggestions, so it must read naturally in a sentence
+- `name` is the plain-English name (3–7 words, no "+"). It is shown in the report switcher, in chat and in follow-up suggestions, so it must read naturally in a sentence
 - `category` must be one of: `geography`, `household_financial`, `time_routine`, `cognitive_bandwidth`, `diet_health`, `ethnicity`
 - `value` must match the exact modifier name from the personas framework tables above
 - `relevance_scan` should include every modifier from every category with its rating

@@ -73,7 +73,7 @@ Rules:
 
 ## Structured output requirement
 
-At the end of **every** response, you MUST include a `<policy_spec>` block containing the current state of the specification as JSON. This block is parsed by the system and is not shown to the analyst — it drives the policy summary display and the sidebar in the interface.
+At the end of **every** response, you MUST include a `<policy_spec>` block containing the current state of the specification as JSON. This block is parsed by the system and is not shown to the analyst — it drives the policy summary display in the interface.
 
 The JSON must follow this exact structure:
 

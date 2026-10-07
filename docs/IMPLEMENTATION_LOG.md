@@ -1494,3 +1494,18 @@ Scan remains the longest single step; its tables are still ~12k characters.
 - Synthesis and chat prompts: SG labels are citations, never nouns in prose; follow-up chips may be 16 words and must not restate the group's defining feature.
 - Sub-group prompt: explicit `**Benefits** / **Harms** / **Depends on implementation**` markup so the lists are distinguishable.
 - Parser fix: `_find_partial_marker_start` checked buffer suffixes, so a stream pause inside `## Equity Assessment` flushed `## ` and left an empty heading at the top of every synthesis section. It now checks the whole trailing line; covered by a chunked-heading test.
+
+---
+
+## 2026-10-07 — Two-pane, stage-adaptive layout
+
+### Problem
+Playwright screenshots at 1440×900 and 1280×720 (seeded from `fixtures/price_cap.json` via the session cache) showed three panes competing at every stage: sidebar 320px, chat 385–450px with every bubble wrapping 6–7 lines, report pane ~670px. While specifying, the sidebar duplicated the right panel exactly. After a run the right pane defaulted to the policy summary, with the Equity Assessment three clicks away.
+
+### What was done
+- Persistent sidebar removed. Layout is chat (45%, min 420px, bubbles capped at 640px) plus one context pane (55%) at every stage.
+- Context pane by stage: policy summary while specifying; a Progress view (the old sidebar stepper, sub-group confirm/remove, search lists, timers — `SpecificationSidebar` moved to `components/analysis/ProgressPane.tsx`) while analysing; reports when complete, opening on the Equity Assessment.
+- New `SectionSwitcher` in the pane header: Equity · Risks · Design · Sub-groups ▾ · More ▾ (Policy summary, Population scan, Run details, Methodology). Radix Popover dropdowns, no new dependencies.
+- "Proceed anyway" fallback is a muted chip in the chat actions row; "SGn:" prefixes dropped from navigation (badges inside reports unchanged).
+- Backend scan-complete message and prompt wording no longer refer to a sidebar. Sub-group `key_findings` no longer open every line with the full group name, since the card sits under it.
+- README notes that search-based replays can't run while the backend holds the local Qdrant store.
