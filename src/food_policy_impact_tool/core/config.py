@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables or .env file."""
 
     openai_api_key: str
-    openai_model: str = "gpt-5.6-terra"
+    openai_model: str = "gpt-6-sol"
     openai_embedding_model: str = "text-embedding-3-small"
 
     openai_scan_model: str | None = None
@@ -19,10 +19,14 @@ class Settings(BaseSettings):
     openai_socratic_model: str | None = None
     openai_chat_model: str | None = None
 
-    openai_scan_reasoning_effort: str | None = None
-    openai_analysis_reasoning_effort: str | None = None
-    openai_socratic_reasoning_effort: str | None = None
-    openai_chat_reasoning_effort: str | None = None
+    openai_scan_reasoning_effort: str | None = "low"
+    openai_analysis_reasoning_effort: str | None = "low"
+    openai_synthesis_reasoning_effort: str | None = "medium"
+    openai_socratic_reasoning_effort: str | None = "low"
+    openai_chat_reasoning_effort: str | None = "low"
+
+    # Max sub-group analyses running at once; lower it if OpenAI returns 429s.
+    subgroup_concurrency: int = 6
 
     qdrant_path: str = str(_PROJECT_ROOT / "data" / "qdrant_store")
     evidence_csv_path: str = str(_PROJECT_ROOT / "data" / "evidence_base.csv")

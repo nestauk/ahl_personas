@@ -26,6 +26,8 @@ Use the **SG labels** (SG1, SG2, …) from the reference list below when citing 
 
 {{SUB_GROUP_ANALYSES}}
 
+If a sub-group's text is `(Analysis failed — no findings for this sub-group.)`, ignore that sub-group: do not cite it, count it, or draw conclusions about it. Keep the other SG labels as listed.
+
 ## Synthesis grounding badges
 
 Tag every substantive claim with a grounding badge appropriate to meta-analysis (you are synthesising prior analyses, not calling `search_evidence`).
@@ -89,70 +91,52 @@ Produce **three separate sections**. You MUST delimit each section so the system
    `<!-- SECTION: equity_assessment -->` (and likewise for `risks_provocations`, `design_improvements`).
 2. **If you omit HTML comments:** each major section MUST start with the exact level-2 heading on its own line: `## Equity Assessment`, then later `## Risks & Provocations`, then `## Design Improvements`. Do not fold multiple sections into one block.
 
+**No repetition.** Each finding appears once, in the section where it fits best. When a later section needs an earlier point, refer to it in a few words with its SG label (e.g. "the de-stocking risk for SG2") rather than restating it. Do not restate sub-group findings at length; the analyst has those reports.
+
+Word budgets below exclude `<badge_detail>` blocks, `<step_summary>` and `<summary_card>`.
+
 <!-- SECTION: equity_assessment -->
 ## Equity Assessment
 
-### Who benefits most and why
+**450 words or fewer.** Open with one **bold sentence** stating the overall inequality direction (likely to widen, narrow, or mixed) and the main reason. Then these three sub-sections, each **150 words or fewer**, as bullets with bold lead-ins:
 
-Each group as a **bold name**, followed by mechanism and rationale (as much detail as the sub-group analyses support):
-- **Mechanism**: how they benefit
-- **Why them**: what makes them specifically advantaged
+### Who benefits most
 
-Use grounding badges on substantive claims.
+The groups that gain most, each with the mechanism and what makes them specifically advantaged.
 
-### Who benefits least or is harmed and why
+### Who benefits least or is harmed
 
-Same format as above.
+Same format.
 
-### Inequality impact direction
+### Where groups diverge
 
-**Bold opening statement** on overall direction (increase / decrease / mixed), then bullets for where inequalities decrease vs increase.
-
-### Unintended distributional effects
-
-Bullet points with bold lead-ins. Consider substitution, displacement, eligibility/access, and stigma/dignity effects.
-
-### Implementation burden differences
-
-Who faces the highest administrative, logistical, or cognitive burden — use bullets with bold lead-ins.
+Where the same policy mechanism produces opposite or qualitatively different outcomes across sub-groups, including where helping one group costs another.
 
 <!-- SECTION: risks_provocations -->
 ## Risks & Provocations
 
-These challenge the policy design and surface what the analysis cannot resolve.
+**350 words or fewer.**
 
 ### Evidence gaps
 
-Bold lead-in labels on every bullet, e.g.:
-- **Retailer de-stocking responses**: We relied on reasoning for… [Gap]
+2 to 4 bullets. Each: **the gap** (bold lead-in), which SGs it affects, and the research that would close it.
 
-What research would fill each gap?
+### Key assumptions and tensions
 
-### Assumption risks
-
-Where the policy's design rests on assumptions that break down for specific sub-groups.
-
-### Equity tensions
-
-Where benefits for one sub-group come at a cost to another.
-
-### Unintended consequences
-
-Second-order effects the design does not account for.
-
-### Implementation risks
-
-Practical barriers to equitable delivery.
+2 to 4 provocations, each **phrased as a question** that challenges an assumption the policy design rests on, or a tension between groups, with the SGs it concerns.
 
 <!-- SECTION: design_improvements -->
 ## Design Improvements
 
-Actionable recommendations for making the policy more equitable — the most directly shareable artifact for the analyst's team.
+**400 words or fewer**, framed as challenges to the specification. The first line is:
 
-Group under thematic `###` headings. Each recommendation:
-- A **bold lead-in** for the action (only the first few words bold — not the whole line), then the full recommendation in normal weight
-- Rationale for why it helps equity (as much detail as needed)
-- Specific enough to be actionable
+`Challenges against your outcomes of interest: …` followed by the analyst's outcomes of interest from the specification, separated by semicolons. If the specification lists no outcomes of interest, use the policy's stated aims instead and write `Challenges against the policy's stated aims: …`.
+
+Then one `### {outcome}` heading per outcome (or aim), each with 1 or 2 bullets in this form:
+
+- **Challenge**: what in the current design works against this outcome, for which SGs. **Change**: the specific, actionable design change.
+
+**6 bullets or fewer in total.** Skip an outcome only if the analyses give you nothing to say about it.
 
 ---
 
@@ -171,18 +155,19 @@ At the end of **each** of the three sections — after the `<step_summary>` and 
 
 **Equity assessment** (`equity_assessment`):
 - `summary`: 2–3 sentences on who benefits most/least and overall distributional picture
-- `key_findings`: array of at least 3 strings (single-sentence, scannable implications)
+- `key_findings`: array of exactly 3 strings (single-sentence, scannable implications)
 - `inequality_direction`: one sentence on whether inequalities likely increase, decrease, or are mixed
 
 **Risks & provocations** (`risks_provocations`):
 - `summary`: 2–3 sentences on the most critical gaps and tensions
-- `key_findings`: array of at least 3 strings
+- `key_findings`: array of exactly 3 strings
 - `gap_count`, `assumption_risks`, `equity_tensions`: integer counts of items you identified in that section
 
 **Design improvements** (`design_improvements`):
 - `summary`: 2–3 sentences on the recommendation themes and priorities
-- `key_findings`: array of at least 3 priority actions (single-sentence each)
+- `key_findings`: array of exactly 3 priority actions (single-sentence each)
 - `recommendation_count`: integer total recommendations in that section
+- `suggested_followups`: array of exactly 3 short questions (12 words or fewer each) the analyst could ask next, using full sub-group names (not SG labels): (1) a deep-dive into one impact dimension (financial, health, access, behavioural or social) for one named group; (2) a comparison of two named groups; (3) a probe of the biggest evidence gap. Example: `["How would the financial impact play out for single parents on Universal Credit?", "How do rural pensioners and urban students compare on access?", "What evidence would settle the retailer de-stocking question?"]`
 
 These cards appear at the top of each synthesis artifact — make them punchy and scannable.
 
@@ -197,14 +182,12 @@ These cards appear at the top of each synthesis artifact — make them punchy an
 
 ## Formatting requirements
 
-Formatting should make your synthesis more scannable — not shorter. Prioritise analytical depth across all three sections.
-
-- Use **clear hierarchical headings** — `##` for major sections, `###` for sub-sections, `####` for specific topics where helpful.
-- Use **bold** for the first few words of key findings or important points — enough that a reader scanning bolded text gets the gist. Do **not** bold entire sentences or entire bullet points. Only the lead-in phrase should be bold, e.g.:
+- Use `##` only for the three section titles and `###` only for the sub-sections named above. No `####` headings.
+- **Bold** only the first few words of a bullet (the lead-in), never whole bullets — except the opening direction sentence of the Equity Assessment.
   - **Retailer de-stocking responses**: We relied on reasoning for likely margin pressure… [Gap]
   - NOT: **Retailer de-stocking responses: We relied on reasoning for likely margin pressure…** [Gap]
-- Use bullet points where they aid readability, particularly for listing distinct gaps, risks, or recommendations. Don't force everything into bullets — extended cross-cutting reasoning is better as prose.
-- Use **horizontal rules** (`---`) between major sections when a heading alone isn't enough visual break.
+- Prefer bullets over prose. Keep each `<badge_detail>` to 40 words or fewer.
+- Stay within the word budgets; they are limits, not targets.
 
 ## Tone
 

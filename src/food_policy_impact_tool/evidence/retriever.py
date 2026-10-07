@@ -1,10 +1,15 @@
 import logging
+import threading
 
 from food_policy_impact_tool.evidence.embedder import embed_query
 from food_policy_impact_tool.evidence.store import EvidenceStore
 from food_policy_impact_tool.models.evidence import RetrievalResult
 
 logger = logging.getLogger(__name__)
+
+# ponytail: one global lock serialises Qdrant searches (local embedded Qdrant is not
+# documented thread-safe); embeddings still run in parallel. Fine at ~24 searches/run.
+_search_lock = threading.Lock()
 
 
 class HybridRetriever:
@@ -29,11 +34,12 @@ class HybridRetriever:
         """
         dense_vector = embed_query(query)
 
-        results = self._store.search_hybrid(
-            dense_vector=dense_vector,
-            query_text=query,
-            top_k=top_k,
-        )
+        with _search_lock:
+            results = self._store.search_hybrid(
+                dense_vector=dense_vector,
+                query_text=query,
+                top_k=top_k,
+            )
 
         logger.info(
             "Retrieved %d chunks for query: %.80s...",

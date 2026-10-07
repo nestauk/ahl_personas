@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -61,11 +62,11 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         settings = get_settings()
         retriever = get_retriever()
         latest_query = user_messages[-1].content
-        evidence = retriever.retrieve(latest_query, top_k=settings.retrieval_top_k)
+        evidence = await asyncio.to_thread(
+            retriever.retrieve, latest_query, top_k=settings.retrieval_top_k,
+        )
     elif request.stage == "analysing" and request.confirmed_subgroups:
         retriever = get_retriever()
-    elif request.run_synthesis:
-        pass
 
     logger.info(
         "Chat request: stage=%s, %d messages, %d evidence chunks, subgroups=%s, synthesis=%s",

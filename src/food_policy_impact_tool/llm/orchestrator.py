@@ -99,30 +99,63 @@ _SYNTHESIS_SECTION_NAMES: dict[str, str] = {
     "design_improvements": "Design Improvements",
 }
 
-_SYNTHESIS_SECTION_PROGRESS: dict[str, str] = {
-    "equity_assessment": (
-        "Synthesising equity assessment — identifying who benefits most and least "
-        "across all sub-groups...\n\n"
-    ),
-    "risks_provocations": (
-        "Identifying evidence gaps, assumption risks, and equity tensions...\n\n"
-    ),
-    "design_improvements": (
-        "Generating design improvement recommendations...\n\n"
-    ),
-}
+_MAX_SEARCH_ROUNDS = 3
+_FAILED_SUBGROUP_TEXT = "(Analysis failed — no findings for this sub-group.)"
+_FALLBACK_FOLLOWUPS = [
+    "Which group is most at risk, and why?",
+    "Where do the sub-groups' experiences diverge most?",
+    "What evidence would most change these conclusions?",
+]
 
 
-def _format_evidence_gathered_message(source_names: list[str]) -> str:
-    """Format a chat progress line after evidence retrieval, before analysis writing."""
-    if not source_names:
-        return (
-            "Evidence search complete — reasoning from sub-group constraints "
-            "and policy context...\n\n"
-        )
-    n = len(source_names)
-    label = "source" if n == 1 else "sources"
-    return f"Found relevant evidence across {n} {label}.\n\n"
+async def _merge_streams(
+    factories: list[Any], limit: int,
+) -> AsyncIterator[Any]:
+    """Run async-iterator factories concurrently (at most `limit` at once), yielding
+    items as they arrive. Order is preserved within each source, not across them."""
+    # ponytail: unbounded queue, no backpressure; fine for a handful of token streams.
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    sem = asyncio.Semaphore(limit)
+    done = object()
+
+    async def pump(factory: Any) -> None:
+        try:
+            async with sem:
+                async for item in factory():
+                    await queue.put(item)
+        finally:
+            queue.put_nowait(done)
+
+    tasks = [asyncio.create_task(pump(f)) for f in factories]
+    try:
+        remaining = len(tasks)
+        while remaining:
+            item = await queue.get()
+            if item is done:
+                remaining -= 1
+            else:
+                yield item
+    finally:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _format_analyses(analysis_texts: list[dict[str, str]]) -> str:
+    """Format report texts for a prompt: sub-groups (id sg_* or no id) get positional
+    SGn labels; synthesis sections get a plain heading."""
+    sgs: list[dict[str, str]] = []
+    others: list[dict[str, str]] = []
+    for a in analysis_texts:
+        (sgs if a.get("id", "sg_").startswith("sg_") else others).append(a)
+    text = "Sub-group reference labels:\n" + "\n".join(
+        f"- SG{i}: {a.get('name', '')}" for i, a in enumerate(sgs, 1)
+    ) + "\n"
+    for i, a in enumerate(sgs, 1):
+        text += f"\n\n### SG{i}: {a.get('name', '')}\n\n{a.get('text', '')}"
+    for a in others:
+        text += f"\n\n### {a.get('name', '')}\n\n{a.get('text', '')}"
+    return text
 
 
 class _SynthesisSectionParser:
@@ -654,11 +687,13 @@ async def _stream_subgroup_with_tools(
     sub_group: dict[str, Any],
     retriever: HybridRetriever,
     raw_searches: list[dict[str, Any]] | None = None,
+    sg_index: int = 0,
 ) -> AsyncIterator[tuple[str, Any]]:
     """Run a per-sub-group analysis call with search_evidence tool calling.
 
     Handles the tool call loop: streams text, intercepts tool calls, executes
     them via the retriever, feeds results back, and continues until done.
+    After _MAX_SEARCH_ROUNDS search rounds the model is forced to write.
 
     Args:
         client: OpenAI async client.
@@ -667,11 +702,10 @@ async def _stream_subgroup_with_tools(
         retriever: Evidence retriever for tool calls.
         raw_searches: Mutable list that receives raw search records (query + chunks)
             for each tool call. Caller reads this after iteration completes.
+        sg_index: Sub-group index, attached to evidence search events.
 
     Yields:
-        Tuples of ("text", content), ("progress", chat_status_line), or ("data", event_dict).
-        LLM analysis tokens use ("text", ...); callers route those to the reading panel only.
-        ("progress", ...) lines are short chat narration and must be forwarded as ("text", ...).
+        Tuples of ("text", content) for report tokens or ("data", event_dict).
     """
     settings = get_settings()
     raw_prompt = _load_prompt("analysis_subgroup.md")
@@ -690,10 +724,10 @@ async def _stream_subgroup_with_tools(
             "content": (
                 f"Analyse how this policy would be experienced by the sub-group: "
                 f"{sub_group.get('name', 'this sub-group')}. "
-                f"Use the search_evidence tool to find relevant evidence from the "
-                f"curated evidence base. Search for evidence on multiple dimensions "
-                f"(financial impact, food access, shopping behaviour, cooking capacity, "
-                f"health outcomes) as relevant to this sub-group's material constraints."
+                f"Call search_evidence 3–4 times in one turn, covering the dimensions "
+                f"most relevant to this sub-group's material constraints (e.g. "
+                f"financial impact, food access, shopping behaviour, cooking capacity, "
+                f"health outcomes). Do at most one follow-up round of searches, then write."
             ),
         },
     ]
@@ -701,21 +735,25 @@ async def _stream_subgroup_with_tools(
     sg_name = sub_group.get("name", "Unknown sub-group")
     tool_call_round = 0
     sg_start = time.monotonic()
-    had_tool_calls = False
-    all_source_names: list[str] = []
-    evidence_progress_sent = False
-    writing_progress_sent = False
     logger.info("[subgroup] START '%s' — calling LLM with search_evidence tool", sg_name)
 
     # The Responses API is required for function tools on reasoning models
-    # (chat completions rejects tools + reasoning for GPT-5.6). Tool rounds
-    # continue server-side state via previous_response_id.
+    # (chat completions rejects tools + reasoning). Tool rounds continue
+    # server-side state via previous_response_id.
     request_input: list[dict[str, Any]] = api_messages
     previous_response_id: str | None = None
 
     while True:
         tool_call_round += 1
         round_start = time.monotonic()
+        force_write = tool_call_round > _MAX_SEARCH_ROUNDS
+        if force_write:
+            # ponytail: belt and braces alongside tool_choice="none" (untested with
+            # previous_response_id); no hard round cap beyond this.
+            request_input.append({
+                "role": "user",
+                "content": "Search complete. Write the analysis now.",
+            })
         logger.info(
             "[subgroup] '%s' round %d — sending to LLM (%d input items)",
             sg_name, tool_call_round, len(request_input),
@@ -726,9 +764,13 @@ async def _stream_subgroup_with_tools(
             input=request_input,
             tools=[RESPONSES_SEARCH_EVIDENCE_TOOL],
             stream=True,
+            # Runaway guard; includes reasoning tokens.
+            max_output_tokens=6000,
             name="subgroup-analysis",
             metadata={"subgroup": sg_name[:512], "tool_round": str(tool_call_round)},
         )
+        if force_write:
+            subgroup_kwargs["tool_choice"] = "none"
         if previous_response_id:
             subgroup_kwargs["previous_response_id"] = previous_response_id
         if settings.openai_analysis_reasoning_effort:
@@ -754,18 +796,6 @@ async def _stream_subgroup_with_tools(
                         time.monotonic() - round_start,
                     )
                     first_token = False
-                    if had_tool_calls and not evidence_progress_sent:
-                        yield (
-                            "progress",
-                            _format_evidence_gathered_message(all_source_names),
-                        )
-                        evidence_progress_sent = True
-                    if not writing_progress_sent:
-                        yield (
-                            "progress",
-                            "Writing detailed impact analysis for this sub-group...\n\n",
-                        )
-                        writing_progress_sent = True
                 collected_text.append(event.delta)
                 yield ("text", event.delta)
 
@@ -777,83 +807,20 @@ async def _stream_subgroup_with_tools(
             elif etype == "response.completed":
                 response_id = event.response.id
 
+            elif etype == "response.incomplete" and collected_text and getattr(
+                getattr(event.response, "incomplete_details", None), "reason", None,
+            ) == "max_output_tokens":
+                logger.warning("[subgroup] '%s' hit max_output_tokens — keeping partial text", sg_name)
+                function_calls = []
+                break
+
             elif etype in ("response.failed", "response.incomplete", "error"):
                 detail = getattr(event, "response", None) or event
                 raise RuntimeError(f"Responses stream ended abnormally: {detail}")
 
         round_elapsed = time.monotonic() - round_start
 
-        if function_calls:
-            had_tool_calls = True
-            previous_response_id = response_id
-            request_input = []
-            logger.info(
-                "[subgroup] '%s' round %d — LLM requested %d tool call(s) after %.1fs",
-                sg_name, tool_call_round, len(function_calls), round_elapsed,
-            )
-
-            for fc in function_calls:
-                fn_name = fc.name
-                if fn_name == "search_evidence":
-                    try:
-                        args = json.loads(fc.arguments)
-                        query = args.get("query", "")
-                    except json.JSONDecodeError:
-                        query = fc.arguments
-
-                    yield ("data", {"type": "evidence_search", "query": query})
-
-                    retrieve_start = time.monotonic()
-                    results = retriever.retrieve(query, top_k=8)
-                    tool_response = _format_tool_evidence(results, query=query)
-                    retrieve_ms = (time.monotonic() - retrieve_start) * 1000
-
-                    logger.info(
-                        "[subgroup] '%s' — search_evidence('%s') → %d chunks in %.0fms",
-                        sg_name, query[:60], len(results), retrieve_ms,
-                    )
-
-                    source_names = list(dict.fromkeys(
-                        r.chunk.source.source_name for r in results
-                    ))
-                    for name in source_names:
-                        if name not in all_source_names:
-                            all_source_names.append(name)
-
-                    if raw_searches is not None:
-                        raw_searches.append({
-                            "query": query,
-                            "chunks": [
-                                {
-                                    "source_name": r.chunk.source.source_name,
-                                    "source_year": r.chunk.source.year,
-                                    "text": r.chunk.text,
-                                    "page_number": r.chunk.page_number,
-                                }
-                                for r in results
-                            ],
-                        })
-
-                    yield ("data", {
-                        "type": "evidence_search_complete",
-                        "query": query,
-                        "num_results": len(results),
-                        "source_names": source_names,
-                    })
-                else:
-                    tool_response = f"Unknown tool: {fn_name}"
-
-                request_input.append({
-                    "type": "function_call_output",
-                    "call_id": fc.call_id,
-                    "output": tool_response,
-                })
-
-            # Keepalive before the next LLM round — prevents the browser
-            # from flagging the connection as unresponsive during the wait
-            # for the LLM to process tool results and start generating.
-            yield ("data", {"type": "heartbeat"})
-        else:
+        if not function_calls:
             text_len = sum(len(t) for t in collected_text)
             logger.info(
                 "[subgroup] '%s' round %d — generation complete, "
@@ -862,6 +829,72 @@ async def _stream_subgroup_with_tools(
                 round_elapsed, time.monotonic() - sg_start,
             )
             break
+
+        previous_response_id = response_id
+        request_input = []
+        logger.info(
+            "[subgroup] '%s' round %d — LLM requested %d tool call(s) after %.1fs",
+            sg_name, tool_call_round, len(function_calls), round_elapsed,
+        )
+
+        queries: list[str | None] = []
+        for fc in function_calls:
+            if fc.name != "search_evidence":
+                queries.append(None)
+                continue
+            try:
+                query = json.loads(fc.arguments).get("query", "")
+            except (json.JSONDecodeError, AttributeError):
+                query = fc.arguments
+            queries.append(query)
+            yield ("data", {"type": "evidence_search", "query": query, "index": sg_index})
+
+        retrieve_start = time.monotonic()
+        all_results = await asyncio.gather(*(
+            asyncio.to_thread(retriever.retrieve, q, 5) if q is not None
+            else asyncio.sleep(0, result=[])
+            for q in queries
+        ))
+        logger.info(
+            "[subgroup] '%s' — %d searches in %.0fms",
+            sg_name, len(queries), (time.monotonic() - retrieve_start) * 1000,
+        )
+
+        for fc, query, results in zip(function_calls, queries, all_results, strict=True):
+            if query is None:
+                tool_response = f"Unknown tool: {fc.name}"
+            else:
+                tool_response = _format_tool_evidence(results, query=query)
+                if raw_searches is not None:
+                    raw_searches.append({
+                        "query": query,
+                        "chunks": [
+                            {
+                                "source_name": r.chunk.source.source_name,
+                                "source_year": r.chunk.source.year,
+                                "text": r.chunk.text,
+                                "page_number": r.chunk.page_number,
+                            }
+                            for r in results
+                        ],
+                    })
+                yield ("data", {
+                    "type": "evidence_search_complete",
+                    "query": query,
+                    "num_results": len(results),
+                    "source_names": list(dict.fromkeys(
+                        r.chunk.source.source_name for r in results
+                    )),
+                    "index": sg_index,
+                })
+            request_input.append({
+                "type": "function_call_output",
+                "call_id": fc.call_id,
+                "output": tool_response,
+            })
+
+        # Keepalive before the next LLM round.
+        yield ("data", {"type": "heartbeat"})
 
 
 async def _stream_synthesis(
@@ -874,27 +907,15 @@ async def _stream_synthesis(
     Args:
         client: OpenAI async client.
         policy_spec: Formatted policy specification text.
-        sub_group_analyses: List of dicts with 'name' and 'text' for each completed sub-group.
+        sub_group_analyses: List of dicts with 'name' and 'text' (and optional 'id')
+            for each sub-group, in index order.
 
     Yields:
         Tuples of ("text", content).
     """
     settings = get_settings()
     raw_prompt = _load_prompt("analysis_synthesis.md")
-
-    mapping_lines = [
-        f"- SG{i}: {analysis['name']}"
-        for i, analysis in enumerate(sub_group_analyses, 1)
-    ]
-    analyses_text = (
-        "Sub-group reference labels:\n"
-        + "\n".join(mapping_lines)
-        + "\n"
-    )
-    for i, analysis in enumerate(sub_group_analyses, 1):
-        analyses_text += (
-            f"\n\n### SG{i}: {analysis['name']}\n\n{analysis['text']}"
-        )
+    analyses_text = _format_analyses(sub_group_analyses)
 
     system_prompt = raw_prompt.replace(
         "{{POLICY_SPECIFICATION}}", policy_spec,
@@ -925,10 +946,11 @@ async def _stream_synthesis(
         messages=api_messages,
         stream=True,
         stream_options={"include_usage": True},
+        max_completion_tokens=10000,
         name="equity-synthesis",
     )
-    if settings.openai_analysis_reasoning_effort:
-        synthesis_kwargs["reasoning_effort"] = settings.openai_analysis_reasoning_effort
+    if settings.openai_synthesis_reasoning_effort:
+        synthesis_kwargs["reasoning_effort"] = settings.openai_synthesis_reasoning_effort
 
     stream = await _stream_with_retry(client.chat.completions.create, **synthesis_kwargs)
 
@@ -954,10 +976,7 @@ async def stream_analysis_chain(
     confirmed_subgroups: list[dict[str, Any]],
     retriever: HybridRetriever,
 ) -> AsyncIterator[tuple[str, Any]]:
-    """Run per-sub-group analyses, then pause for analyst review before synthesis.
-
-    The chain stops after all sub-group analyses and emits a checkpoint event.
-    Synthesis is triggered separately via stream_synthesis_only().
+    """Run per-sub-group analyses in parallel, then the synthesis, in one stream.
 
     Args:
         messages: Conversation history (used to extract policy specification).
@@ -966,8 +985,9 @@ async def stream_analysis_chain(
 
     Yields:
         Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
+        The last item is always the stage_transition to "chatting".
     """
-    get_settings()
+    settings = get_settings()
     client = _get_client()
 
     chain_start = time.monotonic()
@@ -980,17 +1000,16 @@ async def stream_analysis_chain(
     policy_spec = _extract_policy_spec_from_history(messages)
 
     yield ("text", (
-        f"Starting the detailed analysis of {n} sub-groups. Before reading the "
-        f"results, consider: **for each group, how would you expect them to "
-        f"benefit or be harmed, and through what mechanism?** The analyses are "
-        f"most useful where they differ from what you expected.\n\n"
+        f"Analysing {n} sub-groups in parallel (about 2 minutes). While this runs: "
+        f"**where might helping one of these groups come at a cost to another?**\n\n"
     ))
 
-    completed_count = 0
+    texts: list[str | None] = [None] * n
 
-    for i, sg in enumerate(confirmed_subgroups):
+    async def _run_one(i: int, sg: dict[str, Any]) -> AsyncIterator[tuple[str, Any]]:
         sg_name = sg.get("name", f"Sub-group {i + 1}")
-        logger.info("[chain] --- Sub-group %d/%d: '%s' ---", i + 1, n, sg_name)
+        section_id = f"sg_{i}"
+        logger.info("[chain] --- Sub-group %d/%d START: '%s' ---", i + 1, n, sg_name)
         yield ("data", {"type": "heartbeat"})
         yield ("data", {
             "type": "analysis_step",
@@ -999,8 +1018,6 @@ async def stream_analysis_chain(
             "name": sg_name,
             "status": "active",
         })
-
-        section_id = f"sg_{i}"
         try:
             sg_start = time.monotonic()
             analysis_text: list[str] = []
@@ -1008,10 +1025,9 @@ async def stream_analysis_chain(
             async for part in _stream_subgroup_with_tools(
                 client, policy_spec, sg, retriever,
                 raw_searches=sg_raw_searches,
+                sg_index=i,
             ):
-                if part[0] == "progress":
-                    yield ("text", part[1])
-                elif part[0] == "text":
+                if part[0] == "text":
                     analysis_text.append(part[1])
                     yield ("analysis_content", {
                         "section": section_id,
@@ -1020,8 +1036,8 @@ async def stream_analysis_chain(
                 else:
                     yield part
 
-            sg_elapsed = time.monotonic() - sg_start
             full_analysis = "".join(analysis_text)
+            texts[i] = _strip_artifact_tail_blocks(full_analysis)
             step_summary = _extract_step_summary(full_analysis)
             if step_summary:
                 yield ("data", {
@@ -1036,11 +1052,9 @@ async def stream_analysis_chain(
                     "section_id": section_id,
                     "card": summary_card,
                 })
-            text_len = len(full_analysis)
-            completed_count += 1
             logger.info(
                 "[chain] Sub-group %d/%d COMPLETE: '%s' — %d chars in %.1fs",
-                i + 1, n, sg_name, text_len, sg_elapsed,
+                i + 1, n, sg_name, len(full_analysis), time.monotonic() - sg_start,
             )
             if sg_raw_searches:
                 yield ("data", {
@@ -1054,25 +1068,13 @@ async def stream_analysis_chain(
                 "index": i,
                 "status": "complete",
             })
-            # Post a substantive per-sub-group update to the chat: impact
-            # direction plus top findings, so the chat carries the narrative
-            # without the analyst opening the full report.
-            headline = f"**{sg_name}** ({i + 1}/{n})"
-            finding_lines: list[str] = []
-            if summary_card:
-                direction = summary_card.get("impact_direction")
-                if isinstance(direction, str) and direction.strip():
-                    headline += f" — {direction.strip()}"
-                findings = summary_card.get("key_findings")
-                if isinstance(findings, list):
-                    finding_lines = [
-                        f"- {f.strip()}"
-                        for f in findings
-                        if isinstance(f, str) and f.strip()
-                    ][:3]
-            elif step_summary:
-                headline += f" — {step_summary}"
-            yield ("text", "\n".join([headline, *finding_lines]) + "\n\n")
+            direction = (summary_card or {}).get("impact_direction")
+            if not (isinstance(direction, str) and direction.strip()):
+                direction = step_summary
+            line = f"✓ **{sg_name}**"
+            if isinstance(direction, str) and direction.strip():
+                line += f" — {direction.strip()}"
+            yield ("text", line + "\n\n")
         except Exception:
             logger.exception(
                 "[chain] Sub-group %d/%d FAILED: '%s'", i + 1, n, sg_name,
@@ -1091,29 +1093,40 @@ async def stream_analysis_chain(
                 "index": i,
                 "status": "error",
             })
-            yield ("text", (
-                f"Analysis for **{sg_name}** encountered an error. "
-                f"Continuing with the remaining sub-groups.\n\n"
-            ))
+            yield ("text", f"✗ **{sg_name}** — analysis failed\n\n")
 
-    chain_elapsed = time.monotonic() - chain_start
+    factories = [
+        (lambda i=i, sg=sg: _run_one(i, sg))
+        for i, sg in enumerate(confirmed_subgroups)
+    ]
+    async for part in _merge_streams(factories, settings.subgroup_concurrency):
+        yield part
+
+    completed_count = sum(t is not None for t in texts)
     logger.info(
-        "[chain] === SUB-GROUP ANALYSES COMPLETE === "
-        "%d/%d succeeded in %.1fs — pausing for analyst review",
-        completed_count, n, chain_elapsed,
+        "[chain] === SUB-GROUP ANALYSES COMPLETE === %d/%d succeeded in %.1fs",
+        completed_count, n, time.monotonic() - chain_start,
     )
 
-    yield ("data", {"type": "analysis_checkpoint", "subgroup_count": n})
+    if completed_count:
+        # Index order with placeholders: SGn labels are positional on the frontend.
+        analysis_texts = [
+            {
+                "id": f"sg_{i}",
+                "name": sg.get("name", f"Sub-group {i + 1}"),
+                "text": texts[i] or _FAILED_SUBGROUP_TEXT,
+            }
+            for i, sg in enumerate(confirmed_subgroups)
+        ]
+        async for part in stream_synthesis_only(
+            messages=messages, analysis_texts=analysis_texts,
+        ):
+            yield part
+    else:
+        yield ("text", "All sub-group analyses failed, so there is nothing to synthesise.\n\n")
+
+    logger.info("[chain] === CHAIN COMPLETE === in %.1fs", time.monotonic() - chain_start)
     yield ("data", {"type": "stage_transition", "stage": "chatting"})
-    yield ("text", (
-        f"All {n} sub-group analyses complete. The analysis panel contains detailed "
-        f"findings for each population group. Review them, then click **Run synthesis** "
-        f"in the sidebar to generate the equity assessment, risks analysis, and design "
-        f"recommendations.\n\n"
-        f"Before running synthesis, one thing worth thinking about: **where might "
-        f"helping one of these groups come at a cost to another?** Tensions like "
-        f"that are a key thing the synthesis looks for."
-    ))
 
 
 async def stream_synthesis_only(
@@ -1121,118 +1134,75 @@ async def stream_synthesis_only(
     messages: list[ChatMessage],
     analysis_texts: list[dict[str, str]],
 ) -> AsyncIterator[tuple[str, Any]]:
-    """Run the equity synthesis as a standalone call, triggered after the checkpoint.
+    """Run the equity synthesis, then offer deep-dive suggestions in chat.
+
+    Called inline at the end of the analysis chain, or standalone for re-runs.
+    Does not emit stage_transition; callers do.
 
     Args:
         messages: Conversation history (used to extract policy specification).
-        analysis_texts: List of dicts with 'name' and 'text' for each sub-group analysis,
-            sent from the frontend's accumulated analysis sections.
+        analysis_texts: List of dicts with 'name', 'text' (and optional 'id') for
+            each sub-group analysis, in index order.
 
     Yields:
         Tuples of ("text", content), ("analysis_content", dict), or ("data", event_dict).
     """
-    get_settings()
     client = _get_client()
-
     policy_spec = _extract_policy_spec_from_history(messages)
 
-    n_analyses = len(analysis_texts)
     logger.info(
         "[synthesis] === SYNTHESIS START === %d sub-group analyses provided",
-        n_analyses,
+        len(analysis_texts),
     )
     yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "active"})
-    yield (
-        "text",
-        f"Beginning equity synthesis across {n_analyses} sub-group analyses...\n\n",
-    )
+
+    parser = _SynthesisSectionParser()
+    followups: Any = None
+
+    def drain() -> list[tuple[str, Any]]:
+        nonlocal followups
+        parser.drain_section_transitions()
+        parts: list[tuple[str, Any]] = []
+        for section_id, summary in parser.drain_pending_step_summaries():
+            parts.append(("data", {
+                "type": "step_summary",
+                "section_id": section_id,
+                "summary": summary,
+            }))
+            label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
+            parts.append(("text", f"✓ **{label}** complete. *{summary}*\n\n"))
+        for section_id, card in parser.drain_pending_summary_cards():
+            if section_id == "design_improvements":
+                followups = card.get("suggested_followups")
+            parts.append(("data", {
+                "type": "summary_card",
+                "section_id": section_id,
+                "card": card,
+            }))
+        return parts
+
+    def content(chunks: list[tuple[str, str]]) -> list[tuple[str, Any]]:
+        return [
+            ("analysis_content", {"section": section_id, "delta": delta})
+            for section_id, delta in chunks if delta
+        ]
 
     try:
         synthesis_start = time.monotonic()
-        parser = _SynthesisSectionParser()
-        synthesis_sections_announced: set[str] = set()
-
         async for part in _stream_synthesis(client, policy_spec, analysis_texts):
-            if part[0] == "text":
-                if "equity_assessment" not in synthesis_sections_announced:
-                    yield ("text", _SYNTHESIS_SECTION_PROGRESS["equity_assessment"])
-                    synthesis_sections_announced.add("equity_assessment")
-                chunks = parser.feed(part[1])
-                for transition in parser.drain_section_transitions():
-                    if transition not in synthesis_sections_announced:
-                        yield ("text", _SYNTHESIS_SECTION_PROGRESS[transition])
-                        synthesis_sections_announced.add(transition)
-                for section_id, summary in parser.drain_pending_step_summaries():
-                    yield ("data", {
-                        "type": "step_summary",
-                        "section_id": section_id,
-                        "summary": summary,
-                    })
-                    label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
-                    yield ("text", f"✓ **{label}** complete. *{summary}*\n\n")
-                for section_id, card in parser.drain_pending_summary_cards():
-                    yield ("data", {
-                        "type": "summary_card",
-                        "section_id": section_id,
-                        "card": card,
-                    })
-                for section_id, content_delta in chunks:
-                    if content_delta:
-                        yield ("analysis_content", {
-                            "section": section_id,
-                            "delta": content_delta,
-                        })
-            else:
+            if part[0] != "text":
                 yield part
-        flush_chunks = parser.flush()
-        for transition in parser.drain_section_transitions():
-            if transition not in synthesis_sections_announced:
-                yield ("text", _SYNTHESIS_SECTION_PROGRESS[transition])
-                synthesis_sections_announced.add(transition)
-        for section_id, summary in parser.drain_pending_step_summaries():
-            yield ("data", {
-                "type": "step_summary",
-                "section_id": section_id,
-                "summary": summary,
-            })
-            label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
-            yield ("text", f"✓ **{label}** complete. *{summary}*\n\n")
-        for section_id, card in parser.drain_pending_summary_cards():
-            yield ("data", {
-                "type": "summary_card",
-                "section_id": section_id,
-                "card": card,
-            })
-        for section_id, content_delta in flush_chunks:
-            if content_delta:
-                yield ("analysis_content", {
-                    "section": section_id,
-                    "delta": content_delta,
-                })
-        for section_id, summary in parser.drain_pending_step_summaries():
-            yield ("data", {
-                "type": "step_summary",
-                "section_id": section_id,
-                "summary": summary,
-            })
-            label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
-            yield ("text", f"✓ **{label}** complete. *{summary}*\n\n")
-        for section_id, card in parser.drain_pending_summary_cards():
-            yield ("data", {
-                "type": "summary_card",
-                "section_id": section_id,
-                "card": card,
-            })
+                continue
+            chunks = parser.feed(part[1])
+            for p in drain() + content(chunks):
+                yield p
+        for p in content(parser.flush()) + drain():
+            yield p
         logger.info(
             "[synthesis] COMPLETE in %.1fs",
             time.monotonic() - synthesis_start,
         )
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "complete"})
-        yield (
-            "text",
-            "✓ Synthesis complete. Three artifacts generated: Equity Assessment, "
-            "Risks & Provocations, and Design Improvements.\n\n",
-        )
     except Exception:
         logger.exception("[synthesis] FAILED")
         yield ("analysis_content", {
@@ -1244,7 +1214,16 @@ async def stream_synthesis_only(
         })
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "error"})
 
-    yield ("data", {"type": "stage_transition", "stage": "chatting"})
+    if not (
+        isinstance(followups, list)
+        and len([f for f in followups if isinstance(f, str) and f.strip()]) >= 3
+    ):
+        followups = _FALLBACK_FOLLOWUPS
+    chips = [f.strip() for f in followups if isinstance(f, str) and f.strip()][:3]
+    yield ("text", (
+        "\n\nAsk anything about the reports, or pick a deep-dive:\n"
+        f"<suggested_answers>{json.dumps(chips, ensure_ascii=False)}</suggested_answers>"
+    ))
 
 
 async def stream_response(
@@ -1268,8 +1247,10 @@ async def stream_response(
         evidence: Retrieved evidence chunks (only used in 'chatting' stage).
         spec_state: Current specification state from the frontend sidebar.
         confirmed_subgroups: Confirmed sub-groups for the analysis chain.
-        run_synthesis: Whether to run the synthesis call (triggered after checkpoint).
-        analysis_texts: Per-sub-group analysis texts for synthesis (sent from frontend).
+        run_synthesis: Whether to re-run the synthesis on its own (no longer sent by
+            the frontend; kept for re-runs).
+        analysis_texts: Report texts ({id?, name, text}) sent from the frontend; used
+            for a synthesis re-run and to ground chatting-stage replies.
         retriever: Evidence retriever (required for 'analysing' stage with confirmed sub-groups).
 
     Yields:
@@ -1284,6 +1265,7 @@ async def stream_response(
             analysis_texts=analysis_texts,
         ):
             yield part
+        yield ("data", {"type": "stage_transition", "stage": "chatting"})
         return
 
     if stage == "analysing" and confirmed_subgroups:
@@ -1323,6 +1305,7 @@ async def stream_response(
             messages=api_messages,
             stream=True,
             stream_options={"include_usage": True},
+            max_completion_tokens=6000,
             name="relevance-scan",
         )
         if settings.openai_scan_reasoning_effort:
@@ -1448,7 +1431,13 @@ async def stream_response(
         )
         evidence_context = None
     else:
-        system_prompt = _load_prompt("system.md")
+        system_prompt = _load_prompt("system.md").replace(
+            "{{POLICY_SPECIFICATION}}", _extract_policy_spec_from_history(messages),
+        ).replace(
+            "{{ANALYSIS_REPORTS}}",
+            _format_analyses(analysis_texts) if analysis_texts
+            else "No analysis has been run yet.",
+        )
         evidence_context = _format_evidence_context(evidence or [])
 
     api_messages = _build_messages(
@@ -1477,6 +1466,8 @@ async def stream_response(
     )
     if reasoning_effort:
         chat_kwargs["reasoning_effort"] = reasoning_effort
+    if stage != "specifying":
+        chat_kwargs["max_completion_tokens"] = 3000
 
     stream = await client.chat.completions.create(**chat_kwargs)
 

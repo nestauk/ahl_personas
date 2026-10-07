@@ -170,22 +170,24 @@ If the policy summary does not explicitly address all taxonomy dimensions (lever
 
 ## Output format
 
+Keep the readable output short: the full ratings live in the JSON block, so the tables show only what matters.
+
 ### Part 1 — Population Relevance Assessment
 
 Start with a heading "## Population Relevance Assessment" followed by a one-line summary of how many characteristics were rated HIGH or MODERATE (e.g. "22 characteristics rated HIGH or MODERATE across 6 categories.").
 
-Then present each category under a `###` heading with a compact table. Within each table, sort rows by relevance — HIGH first, then MODERATE, then LOW. Use `[High]`, `[Moderate]`, or `[Low]` tags in the Relevance column (these render as colour-coded badges in the UI). Each reasoning cell should be a single concise sentence.
+Then present each category under a `###` heading with a compact table containing **only HIGH and MODERATE rows**, HIGH first. Use `[High]` or `[Moderate]` tags in the Relevance column (these render as colour-coded badges in the UI). Each reasoning cell is **15 words or fewer**. After the table, one line lists the LOW characteristics: `Low: a; b; c.` If a category has no HIGH or MODERATE rows, omit the table and write only the `Low:` line.
 
 ```
 ### Geography
 
 | Characteristic | Relevance | Reasoning |
 |---|---|---|
-| Urban deprived | [High] | High reliance on convenience stores makes caps directly salient but risks stock withdrawal where margins are tight |
-| Rural deprived | [High] | Sparse retail and higher distribution costs mean caps may bind on price yet prompt small stores to de-stock essentials |
-| Suburban mixed | [Moderate] | Mixed retail access and car reliance mean some benefit via supermarkets while weaker competition areas may see availability constraints |
-| Urban mixed | [Moderate] | Co-existing cheap and premium outlets implies uneven pass-through and potential localised de-stocking |
-| Urban affluent | [Low] | Abundant retail choice and higher incomes reduce any differential effect |
+| Urban deprived | [High] | Convenience-store reliance makes caps salient; thin margins risk stock withdrawal |
+| Rural deprived | [High] | Sparse retail may bind caps on price but prompt de-stocking |
+| Suburban mixed | [Moderate] | Supermarket access helps; weaker-competition areas may see availability limits |
+
+Low: Urban mixed; Urban affluent.
 ```
 
 The category headings must be:
@@ -198,24 +200,18 @@ The category headings must be:
 
 ### Part 2 — Proposed Sub-groups
 
-After the relevance assessment, present 4–6 proposed sub-groups. Use `####` numbered headings with the sub-group name. Format **exactly** as shown:
+After the relevance assessment, present 4–6 proposed sub-groups. Format **exactly** as shown:
 
 #### 1. Urban deprived + Financially strained + Family with children
 
-**Modifiers:** Urban deprived; Financially strained; Family with children.
-
-**Rationale:** 2–3 sentences explaining why this sub-group was selected and what differential impact you expect.
-
-**Expected differential impact:** One sentence on likely benefit or disadvantage.
+**Why:** 30 words or fewer on why this group was selected and the differential impact you expect.
 
 Continue with `#### 2.`, `#### 3.`, etc.
 
 **Strict formatting rules for Part 2 prose:**
-- Use ONLY the field labels shown above: `**Modifiers:**`, `**Rationale:**`, `**Expected differential impact:**`
-- List modifiers as a semicolon-separated list of human-readable names (e.g. "Financially strained; Urban deprived; Family with children") — NO categories, NO parenthetical annotations
+- Use ONLY the `**Why:**` field. Nothing else under each heading.
 - NEVER include JSON field names in prose: no `category (...)`, no `household_financial`, no `geography`, no `relevance_drivers`, no `(categorical: ...)`
-- NEVER use nested numbered or bulleted sub-lists within a sub-group entry — each field is a single bold label followed by inline text on the same line
-- For categorical sub-groups, name the group descriptively (e.g. "Non-mainstream dietary traditions") and list affected modifiers in the **Modifiers** field as plain names separated by semicolons
+- For categorical sub-groups, name the group descriptively (e.g. "Non-mainstream dietary traditions")
 - The `sg_1`, `sg_2` identifiers and `relevance_drivers` array are ONLY for the JSON block in Part 3 — never surface them in readable output
 
 ### Part 3 — Structured output
@@ -284,21 +280,15 @@ Rules for the JSON:
 
 ## Formatting requirements
 
-- Use **clear hierarchical headings** — `##` for major sections, `###` for sub-sections, `####` for specific topics. Never write more than 3-4 paragraphs under a single heading without introducing a sub-heading.
-- Use **bold text** for key terms, findings, and conclusions at the start of paragraphs or bullet points. The reader should be able to scan bolded text and understand the key points without reading every word.
-- Use **bullet points** for lists of 3+ parallel items. Don't embed lists in run-on paragraphs.
-- Use **short paragraphs** — 2-4 sentences maximum. Each paragraph makes one point.
-- Use **bold lead-ins on bullet points**: `- **Financial impact**: The cap reduces...` not `- The cap reduces the financial...`
-- Use **horizontal rules** (`---`) between major sections when a heading alone isn't enough visual break.
-- **Never** produce a paragraph longer than 5 sentences. Break it up or use bullets.
+- Use only the headings described above: `##` for the assessment title, `###` for the six categories, `####` for proposed sub-groups.
+- No prose paragraphs beyond the one-line summary, the tables, the `Low:` lines and the `**Why:**` lines.
 - **Never** use internal identifiers, JSON field names, or snake_case variable names in the readable output. This means no `sg_1`, no `category (household_financial)`, no `relevance_drivers`, no `(categorical: ...)`. These belong only in the Part 3 JSON block.
-- **Never** use deeply nested lists (numbered sub-lists inside numbered lists). Keep the structure flat: headings → bold labels → inline text.
 
 ## Summary card (required)
 
 After your full output (including the `<proposed_sub_groups>` block), append a `<summary_card>` JSON block containing:
 - `summary`: 2–3 sentences summarising the key themes from the relevance scan
-- `key_findings`: array of at least 3 strings highlighting the most notable patterns (which categories are most affected, any categorical patterns detected, any surprises)
+- `key_findings`: array of exactly 3 strings highlighting the most notable patterns (which categories are most affected, any categorical patterns detected, any surprises)
 - `high_count`, `moderate_count`, `low_count`: integer counts of modifiers at each relevance level (from your `relevance_scan` ratings)
 
 This card appears at the top of the scan artifact in the reading panel — make it punchy and scannable.

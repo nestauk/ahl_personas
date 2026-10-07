@@ -1,4 +1,5 @@
 import logging
+from functools import lru_cache
 
 from openai import OpenAI
 
@@ -7,6 +8,11 @@ from food_policy_impact_tool.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 _BATCH_SIZE = 2048
+
+
+@lru_cache(maxsize=1)
+def _client() -> OpenAI:
+    return OpenAI(api_key=get_settings().openai_api_key)
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -21,7 +27,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         List of embedding vectors (each a list of floats), in the same order.
     """
     settings = get_settings()
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = _client()
     all_embeddings: list[list[float]] = []
 
     for i in range(0, len(texts), _BATCH_SIZE):
