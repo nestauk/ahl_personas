@@ -41,7 +41,7 @@ All analysis is grounded in a curated evidence base of qualitative and mixed-met
 |----------|--------------------------|------------------------------------------------------------|
 | Backend  | Python / FastAPI         | Best ecosystem for LLM orchestration, data, and retrieval  |
 | Frontend | Next.js / React / Tailwind | Professional chat UI, streaming support, rapid iteration |
-| LLM      | OpenAI API               | GPT-4o as the default model                                |
+| LLM      | OpenAI API               | GPT-6 Sol as the default model (configurable per task)     |
 | Deps     | uv (Python), npm (JS)    | Fast, modern dependency management                         |
 
 ## Getting started
@@ -69,10 +69,18 @@ uv sync
 cd frontend && npm install && cd ..
 ```
 
+### Running everything
+
+```bash
+make dev   # backend on :8010 and frontend on :3000, Ctrl-C stops both
+```
+
+Or run them separately:
+
 ### Running the backend
 
 ```bash
-uv run uvicorn food_policy_impact_tool.api:app --reload
+uv run uvicorn food_policy_impact_tool.api:app --reload --port 8010
 ```
 
 ### Running the frontend
@@ -159,5 +167,5 @@ The same codebase works locally and on Railway — only environment variables di
 |---|-------|---------|
 | Backend paths | `./data/...` (defaults) | `/data/...` |
 | Auth | Disabled if `API_KEY` unset | `API_KEY` set on backend, `NEXT_PUBLIC_API_KEY` on frontend |
-| API URL | `http://localhost:8000` | `https://<backend-domain>` |
+| API URL | `http://localhost:8010` | `https://<backend-domain>` |
 | CORS | `http://localhost:3000` | `https://<frontend-domain>` |
