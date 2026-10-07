@@ -45,11 +45,11 @@ import {
 import {
   SYNTHESIS_SECTION_IDS,
   SYNTHESIS_SECTION_LABELS,
+  buildAnalysisTexts,
   buildSgLabels,
   deriveSynthesisSubstepStatus,
   isSynthesisSection,
   stripArtifactTailBlocks,
-  type ActiveStepPhase,
 } from "@/lib/analysis-sections";
 
 function parseSpecFromData(
@@ -109,9 +109,6 @@ export function ChatContainer() {
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress>(
     initialCache?.analysisProgress ?? createEmptyAnalysisProgress(),
   );
-  const [activeEvidenceSearch, setActiveEvidenceSearch] = useState<
-    string | null
-  >(null);
 
   const [analysisSections, setAnalysisSections] = useState<
     Map<string, AnalysisSection>
@@ -142,8 +139,6 @@ export function ChatContainer() {
         ? hydrateSummaryCards(initialCache.cached.summaryCards)
         : new Map(),
   );
-  const [activeStepPhase, setActiveStepPhase] =
-    useState<ActiveStepPhase>(null);
   const [scanCategoryProgress, setScanCategoryProgress] = useState<{
     completed: number;
     total: number;
@@ -173,11 +168,8 @@ export function ChatContainer() {
   const streamingSectionRef = useRef(streamingSection);
   streamingSectionRef.current = streamingSection;
 
-  const activeStepPhaseRef = useRef(activeStepPhase);
-  activeStepPhaseRef.current = activeStepPhase;
-
-  const lastStreamedSectionRef = useRef<string | null>(null);
-  const checkpointReachedRef = useRef(false);
+  // Sub-group indices whose first content delta has been seen this run.
+  const writingSeenRef = useRef<Set<number>>(new Set());
 
   const pendingDeltasRef = useRef<Map<string, string>>(new Map());
   const flushRafRef = useRef<number | null>(null);
@@ -192,12 +184,6 @@ export function ChatContainer() {
     if (streamingSectionRef.current === sectionId) return;
     streamingSectionRef.current = sectionId;
     setStreamingSection(sectionId);
-  }, []);
-
-  const setActiveStepPhaseIfChanged = useCallback((phase: ActiveStepPhase) => {
-    if (activeStepPhaseRef.current === phase) return;
-    activeStepPhaseRef.current = phase;
-    setActiveStepPhase(phase);
   }, []);
 
   const flushPendingDeltas = useCallback(() => {
@@ -251,6 +237,23 @@ export function ChatContainer() {
     }
   }, [setStreamingSectionIfChanged]);
 
+  /** Patch a sub-group step by index; falls back to the first active one. */
+  const patchSubgroupStep = useCallback(
+    (index: number | undefined, patch: (s: AnalysisStep) => Partial<AnalysisStep>) => {
+      setAnalysisProgress((prev) => {
+        const at = prev.steps.findIndex((s) =>
+          s.step === "subgroup" &&
+          (index === undefined ? s.status === "active" : s.index === index),
+        );
+        if (at < 0) return prev;
+        const steps = [...prev.steps];
+        steps[at] = { ...steps[at], ...patch(steps[at]) };
+        return { ...prev, steps };
+      });
+    },
+    [],
+  );
+
   const lastProcessedDataIdx = useRef(-1);
 
   const chatBody = useMemo(
@@ -258,8 +261,11 @@ export function ChatContainer() {
       stage,
       spec_state: specMeta,
       confirmed_subgroups: confirmedSubGroups,
+      ...(stage === "chatting" && analysisSections.size > 0
+        ? { analysis_texts: buildAnalysisTexts(analysisSections) }
+        : {}),
     }),
-    [stage, specMeta, confirmedSubGroups],
+    [stage, specMeta, confirmedSubGroups, analysisSections],
   );
 
   const {
@@ -324,7 +330,11 @@ export function ChatContainer() {
         pending.set(sectionId, (pending.get(sectionId) ?? "") + delta);
 
         if (sectionId.startsWith("sg_")) {
-          setActiveStepPhaseIfChanged("writing");
+          const sgIdx = parseInt(sectionId.slice(3), 10);
+          if (!writingSeenRef.current.has(sgIdx)) {
+            writingSeenRef.current.add(sgIdx);
+            patchSubgroupStep(sgIdx, () => ({ writing: true, activeQuery: null }));
+          }
         }
 
         if (isSynthesisSection(sectionId)) {
@@ -380,8 +390,6 @@ export function ChatContainer() {
               next.set(sectionId, { id: sectionId, name: sgName, content: "" });
               return next;
             });
-            setStreamingSectionIfChanged(sectionId);
-            setActiveStepPhaseIfChanged(null);
           }
         }
 
@@ -391,12 +399,7 @@ export function ChatContainer() {
             flushRafRef.current = null;
           }
           flushRafRef.current = requestAnimationFrame(flushPendingDeltas);
-          lastStreamedSectionRef.current = streamingSectionRef.current;
-          setStreamingSectionIfChanged(null);
-          setActiveEvidenceSearch(null);
-          if (step === "subgroup") {
-            setActiveStepPhaseIfChanged(null);
-          }
+          if (step !== "subgroup") setStreamingSectionIfChanged(null);
         }
 
         setAnalysisProgress((prev) => {
@@ -416,9 +419,19 @@ export function ChatContainer() {
             const merged = { ...current, status };
             if (name !== undefined) merged.name = name;
             if (index !== undefined) merged.index = index;
+            if (status === "active" && current.status !== "active") {
+              merged.startedAt = Date.now();
+            }
+            if (status !== "active") merged.activeQuery = null;
             steps[existing] = merged;
           } else {
-            steps.push({ step, index, name, status });
+            steps.push({
+              step,
+              index,
+              name,
+              status,
+              ...(status === "active" ? { startedAt: Date.now() } : {}),
+            });
           }
 
           const synthStep = steps.find((s) => s.step === "synthesis");
@@ -437,31 +450,23 @@ export function ChatContainer() {
 
       if (eventType === "evidence_search") {
         const query = item.query as string;
-        setActiveEvidenceSearch((prev) => (prev === query ? prev : query));
-        setActiveStepPhaseIfChanged("searching");
+        patchSubgroupStep(item.index as number | undefined, () => ({
+          activeQuery: query,
+        }));
       }
 
       if (eventType === "evidence_search_complete") {
-        setActiveEvidenceSearch(null);
         const record: EvidenceSearchRecord = {
           query: item.query as string,
           numResults: item.num_results as number,
           sourceNames: (item.source_names as string[]) ?? [],
         };
-        setAnalysisProgress((prev) => {
-          const steps = [...prev.steps];
-          const activeIdx = steps.findIndex(
-            (s) => s.step === "subgroup" && s.status === "active",
-          );
-          if (activeIdx >= 0) {
-            const step = steps[activeIdx];
-            steps[activeIdx] = {
-              ...step,
-              searches: [...(step.searches ?? []), record],
-            };
-          }
-          return { ...prev, steps };
-        });
+        // ponytail: searches in a round run concurrently, so the in-flight query
+        // shown is just the latest one started; cleared when any completes.
+        patchSubgroupStep(item.index as number | undefined, (s) => ({
+          activeQuery: null,
+          searches: [...(s.searches ?? []), record],
+        }));
       }
 
       if (eventType === "subgroup_evidence") {
@@ -496,7 +501,7 @@ export function ChatContainer() {
       if (eventType === "summary_card") {
         const sectionId = item.section_id as string;
         const card = item.card as SummaryCard;
-        if (!card) return;
+        if (!card) continue;
         setSummaryCards((prev) => {
           const next = new Map(prev);
           next.set(sectionId, card);
@@ -521,33 +526,14 @@ export function ChatContainer() {
         );
       }
 
-      if (eventType === "analysis_checkpoint") {
-        checkpointReachedRef.current = true;
-      }
-
       if (eventType === "stage_transition") {
-        const newStage = item.stage as ConversationStage;
-        setStage(newStage);
-        setActiveEvidenceSearch(null);
+        setStage(item.stage as ConversationStage);
         setStreamingSectionIfChanged(null);
-
-        if (newStage === "chatting" && !checkpointReachedRef.current) {
-          const sectionCount = analysisSectionsRef.current.size;
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `analysis-complete-${Date.now()}`,
-              role: "assistant",
-              content: `Analysis complete — ${sectionCount} sections analysed. Ask follow-up questions below, or navigate sections in the analysis panel.`,
-            },
-          ]);
-        }
-        checkpointReachedRef.current = false;
       }
     }
     lastProcessedDataIdx.current = data.length - 1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, data?.length, flushPendingDeltas, setActiveSectionIfChanged, setStreamingSectionIfChanged, setActiveStepPhaseIfChanged, setMessages]);
+  }, [data, data?.length, flushPendingDeltas, setActiveSectionIfChanged, setStreamingSectionIfChanged, patchSubgroupStep]);
 
   useEffect(() => {
     if (!initialCache) return;
@@ -617,21 +603,19 @@ export function ChatContainer() {
     setProposedSubGroups(null);
     setConfirmedSubGroups(null);
     setAnalysisProgress(createEmptyAnalysisProgress());
-    setActiveEvidenceSearch(null);
     setAnalysisSections(new Map());
     setActiveSectionIfChanged(null);
     setStreamingSectionIfChanged(null);
     setSubgroupEvidence(new Map());
     setStepSummaries(new Map());
     setSummaryCards(new Map());
-    setActiveStepPhase(null);
     setScanCategoryProgress(null);
     setEvidenceDrawerOpen(false);
     setEvidenceDrawerTarget(null);
     setAuditCardData(null);
     auditCardBuiltRef.current = false;
     lastProcessedDataIdx.current = -1;
-    checkpointReachedRef.current = false;
+    writingSeenRef.current.clear();
     pendingDeltasRef.current.clear();
     if (flushRafRef.current !== null) {
       cancelAnimationFrame(flushRafRef.current);
@@ -659,6 +643,10 @@ export function ChatContainer() {
     ]);
 
     setStage("analysing");
+    setAnalysisProgress({
+      steps: [{ step: "scan", status: "active", startedAt: Date.now() }],
+      isComplete: false,
+    });
 
     setTimeout(() => {
       append({
@@ -673,11 +661,13 @@ export function ChatContainer() {
     const subgroups = confirmedSubGroupsRef.current;
     if (!subgroups || subgroups.length === 0) return;
 
+    const startedAt = Date.now();
     const subgroupSteps: AnalysisStep[] = subgroups.map((sg, i) => ({
       step: "subgroup" as const,
       index: i,
       name: sg.name,
-      status: "pending" as const,
+      status: "active" as const,
+      startedAt,
     }));
     const synthesisStep: AnalysisStep = {
       step: "synthesis",
@@ -695,17 +685,17 @@ export function ChatContainer() {
       };
     });
     setAnalysisSections((prev) => {
+      const next = new Map<string, AnalysisSection>();
       const scanSection = prev.get("scan");
-      if (scanSection) {
-        const next = new Map<string, AnalysisSection>();
-        next.set("scan", scanSection);
-        return next;
-      }
-      return new Map();
+      if (scanSection) next.set("scan", scanSection);
+      subgroups.forEach((sg, i) =>
+        next.set(`sg_${i}`, { id: `sg_${i}`, name: sg.name, content: "" }),
+      );
+      return next;
     });
     setActiveSectionIfChanged(null);
     setStreamingSectionIfChanged(null);
-    setActiveStepPhase(null);
+    writingSeenRef.current.clear();
 
     append({
       role: "user",
@@ -769,52 +759,6 @@ export function ChatContainer() {
       return next;
     });
   }, [analysisProgress.isComplete, specMeta, confirmedSubGroups, subgroupEvidence, evidenceSources, summaryCards]);
-
-  const awaitingSynthesis = useMemo(() => {
-    const steps = analysisProgress.steps;
-    const subgroupSteps = steps.filter((s) => s.step === "subgroup");
-    const synthesisStep = steps.find((s) => s.step === "synthesis");
-    return (
-      subgroupSteps.length > 0 &&
-      subgroupSteps.every(
-        (s) => s.status === "complete" || s.status === "error",
-      ) &&
-      synthesisStep?.status === "pending"
-    );
-  }, [analysisProgress]);
-
-  const analysisSectionsRef = useRef(analysisSections);
-  analysisSectionsRef.current = analysisSections;
-
-  const handleRunSynthesis = useCallback(() => {
-    const sections = analysisSectionsRef.current;
-    const texts: { name: string; text: string }[] = [];
-    sections.forEach((section) => {
-      if (section.id.startsWith("sg_")) {
-        texts.push({
-          name: section.name,
-          text: stripArtifactTailBlocks(section.content),
-        });
-      }
-    });
-    if (texts.length === 0) return;
-
-    setStage("analysing");
-
-    append(
-      {
-        role: "user",
-        content: "Run the equity synthesis and provocations.",
-      },
-      {
-        body: {
-          stage: "analysing",
-          run_synthesis: true,
-          analysis_texts: texts,
-        },
-      },
-    );
-  }, [append]);
 
   const handleRemoveSubGroup = useCallback((subGroupId: string) => {
     setConfirmedSubGroups((prev) => {
@@ -908,8 +852,31 @@ export function ChatContainer() {
       ? "w-[65%]"
       : "w-[60%]";
 
-  const chatDisabled =
-    stage === "analysing" && (isLoading || analysisRunning) && !awaitingSynthesis;
+  const chatDisabled = stage === "analysing" && (isLoading || analysisRunning);
+
+  // Sub-groups stream in parallel, so several sections can be live at once.
+  const streamingSections = new Set<string>(
+    analysisProgress.steps
+      .filter((s) => s.step === "subgroup" && s.status === "active")
+      .map((s) => `sg_${s.index ?? 0}`),
+  );
+  if (streamingSection) streamingSections.add(streamingSection);
+
+  const chatActions: { label: string; onClick: () => void }[] = [];
+  if (stage === "specifying" && specMeta.spec.ready_for_analysis) {
+    chatActions.push({ label: "Proceed to analysis", onClick: handleProceed });
+  }
+  if (
+    stage === "analysing" &&
+    confirmedSubGroups?.length &&
+    !analysisRunning &&
+    !isLoading
+  ) {
+    chatActions.push({
+      label: `Run analysis (${confirmedSubGroups.length} sub-groups)`,
+      onClick: handleRunAnalysis,
+    });
+  }
 
   const policySummary = specMeta.spec.policy_summary
     ? {
@@ -940,16 +907,9 @@ export function ChatContainer() {
           proposedSubGroups={proposedSubGroups}
           confirmedSubGroups={confirmedSubGroups}
           analysisProgress={analysisProgress}
-          onRunAnalysis={handleRunAnalysis}
-          onRunSynthesis={handleRunSynthesis}
-          awaitingSynthesis={awaitingSynthesis}
           onRemoveSubGroup={handleRemoveSubGroup}
-          isLoading={isLoading}
-          activeEvidenceSearch={activeEvidenceSearch}
           onSelectSection={handleSelectSection}
           synthesisSubsteps={synthesisSubsteps}
-          activeStepPhase={activeStepPhase}
-          stepSummaries={stepSummaries}
           sgLabels={sgLabels}
           streamingSection={streamingSection}
           scanCategoryProgress={scanCategoryProgress}
@@ -964,6 +924,7 @@ export function ChatContainer() {
             stage={stage}
             onSelectPolicy={handleSelectPolicy}
             onSelectSuggestion={handleSelectPolicy}
+            actions={chatActions}
           />
           <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
             <ChatInput
@@ -988,7 +949,7 @@ export function ChatContainer() {
               policyName={specMeta.spec.policy_name}
               sections={analysisSections}
               activeSection={activeSection}
-              streamingSection={streamingSection}
+              streamingSections={streamingSections}
               subgroupEvidence={subgroupEvidence}
               confirmedSubGroups={confirmedSubGroups}
               synthesisComplete={synthesisComplete}

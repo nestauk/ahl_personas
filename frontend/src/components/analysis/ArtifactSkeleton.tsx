@@ -106,75 +106,33 @@ function ScanSkeleton() {
   );
 }
 
-const BULLET_WIDTHS_A = ["95%", "85%", "90%"];
-const BULLET_WIDTHS_B = ["80%", "90%", "75%", "85%"];
-const BULLET_WIDTHS_C = ["90%", "80%", "85%"];
-
 function SubgroupSkeleton() {
   return (
     <>
-      <SectionBlock heading="Who is impacted" bullets={BULLET_WIDTHS_A} />
-      <SectionBlock heading="How they are impacted" bullets={BULLET_WIDTHS_B} />
-      <SectionBlock heading="Benefits and harms" bullets={BULLET_WIDTHS_B} />
-      <SectionBlock
-        heading="Impact dimensions"
-        bullets={["90%", "85%", "80%", "90%", "75%"]}
-      />
-      <SectionBlock heading="Uncertainties" bullets={BULLET_WIDTHS_C} />
+      <SectionBlock heading="Who is impacted" bullets={["95%", "85%"]} />
+      <SectionBlock heading="Benefits and harms" bullets={["80%", "90%", "75%", "85%"]} />
+      <SectionBlock heading="Uncertainties" bullets={["90%", "80%"]} />
     </>
   );
 }
 
-function EquityAssessmentSkeleton() {
+// Synthesis headings vary (design improvements follow the analyst's outcomes),
+// so synthesis sections share a heading-free shimmer.
+function GenericSkeleton() {
   return (
     <>
-      <SectionBlock heading="Who benefits most and why" bullets={["95%", "90%", "85%"]} />
-      <SectionBlock heading="Who benefits least or is harmed and why" bullets={["90%", "85%", "95%"]} />
-      <SectionBlock heading="Inequality impact direction" bullets={["80%", "90%", "75%"]} />
-      <SectionBlock heading="Unintended distributional effects" bullets={BULLET_WIDTHS_B} />
-      <SectionBlock heading="Implementation burden differences" bullets={BULLET_WIDTHS_C} />
-    </>
-  );
-}
-
-function RisksProvocationsSkeleton() {
-  return (
-    <>
-      <SectionBlock heading="Evidence gaps" bullets={["90%", "85%", "80%"]} />
-      <SectionBlock heading="Assumption risks" bullets={["85%", "90%"]} />
-      <SectionBlock heading="Equity tensions" bullets={["90%", "80%", "85%"]} />
-      <SectionBlock heading="Unintended consequences" bullets={["80%", "90%"]} />
-      <SectionBlock heading="Implementation risks" bullets={["85%", "90%", "80%"]} />
-    </>
-  );
-}
-
-function DesignImprovementsSkeleton() {
-  return (
-    <>
-      <div className="mb-6">
-        <ShimmerLine width="60%" height="h-4" />
-        <div className="mt-3">
-          <ShimmerBullet width="95%" />
-          <ShimmerBullet width="90%" />
-          <ShimmerBullet width="85%" />
-        </div>
-      </div>
-      <div className="mb-6">
-        <ShimmerLine width="55%" height="h-4" />
-        <div className="mt-3">
-          <ShimmerBullet width="90%" />
-          <ShimmerBullet width="85%" />
-          <ShimmerBullet width="90%" />
-        </div>
-      </div>
-      <div className="mb-6">
-        <ShimmerLine width="50%" height="h-4" />
-        <div className="mt-3">
-          <ShimmerBullet width="85%" />
-          <ShimmerBullet width="90%" />
-        </div>
-      </div>
+      {[["60%", "95%", "90%", "85%"], ["55%", "90%", "85%", "90%"], ["50%", "85%", "90%"]].map(
+        ([title, ...bullets], i) => (
+          <div key={i} className="mb-6">
+            <ShimmerLine width={title} height="h-4" />
+            <div className="mt-3">
+              {bullets.map((w, j) => (
+                <ShimmerBullet key={j} width={w} />
+              ))}
+            </div>
+          </div>
+        ),
+      )}
     </>
   );
 }
@@ -182,9 +140,9 @@ function DesignImprovementsSkeleton() {
 const SKELETON_MAP: Record<SkeletonType, () => React.JSX.Element> = {
   scan: ScanSkeleton,
   subgroup: SubgroupSkeleton,
-  equity_assessment: EquityAssessmentSkeleton,
-  risks_provocations: RisksProvocationsSkeleton,
-  design_improvements: DesignImprovementsSkeleton,
+  equity_assessment: GenericSkeleton,
+  risks_provocations: GenericSkeleton,
+  design_improvements: GenericSkeleton,
 };
 
 export function ArtifactSkeleton({ type }: ArtifactSkeletonProps) {

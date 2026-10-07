@@ -16,6 +16,7 @@ interface MessageListProps {
   stage: ConversationStage;
   onSelectPolicy: (description: string) => void;
   onSelectSuggestion?: (answer: string) => void;
+  actions?: { label: string; onClick: () => void }[];
 }
 
 const NEAR_BOTTOM_THRESHOLD = 120;
@@ -26,6 +27,7 @@ export function MessageList({
   stage,
   onSelectPolicy,
   onSelectSuggestion,
+  actions = [],
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -39,7 +41,7 @@ export function MessageList({
   useEffect(() => {
     if (!isNearBottom()) return;
     bottomRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messages, isNearBottom]);
+  }, [messages, isLoading, isNearBottom]);
 
   if (messages.length === 0) {
     return (
@@ -72,14 +74,14 @@ export function MessageList({
   const lastIsAssistant = messages[lastIdx]?.role === "assistant";
 
   const suggestions =
-    lastIsAssistant && !isLoading && stage === "specifying" && onSelectSuggestion
+    lastIsAssistant && !isLoading && stage !== "analysing" && onSelectSuggestion
       ? parseSuggestedAnswers(messages[lastIdx].content)
       : [];
 
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
-        {messages.map((message, i) => (
+        {messages.map((message) => (
           <MessageBubble
             key={message.id}
             message={message}
@@ -97,13 +99,29 @@ export function MessageList({
                 {answer}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => onSelectSuggestion(SKIP_ANSWER)}
-              className="rounded-full border border-dashed border-[var(--color-border)] px-3.5 py-1.5 text-xs text-[var(--color-text-muted)] transition-all hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-            >
-              Skip — not sure
-            </button>
+            {stage === "specifying" && (
+              <button
+                type="button"
+                onClick={() => onSelectSuggestion(SKIP_ANSWER)}
+                className="rounded-full border border-dashed border-[var(--color-border)] px-3.5 py-1.5 text-xs text-[var(--color-text-muted)] transition-all hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              >
+                Skip — not sure
+              </button>
+            )}
+          </div>
+        )}
+        {!isLoading && actions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {actions.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={a.onClick}
+                className="rounded-full bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+              >
+                {a.label}
+              </button>
+            ))}
           </div>
         )}
         {isLoading && !lastIsAssistant && (

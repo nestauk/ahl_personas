@@ -1447,3 +1447,40 @@ The badge detail must include both the relevant excerpt from the source and the 
 - `frontend/src/components/analysis/BadgePopover.tsx` — `inferred` in `TYPE_LABELS`, evidence display conditions; improved `extractQuoteProbes` (curly quotes, ellipsis splitting), simplified `scoreChunkByQuote` and `findChunksByQuote`
 - `frontend/src/lib/types.ts` — `inferred: number` in `evidence_confidence`
 - `frontend/src/components/analysis/ArtifactSummaryCard.tsx` — inferred count in confidence display
+
+---
+
+## 2026-10-07 — Post-workshop round: parallel chain, auto synthesis, leaner reports, chat-led deep-dives
+
+### Problem
+
+Analyst workshop and two live-test rounds: a full run took 13–14 minutes (five sub-groups analysed one after another, ~4,200 output tokens each); the same headline appeared in chat, sidebar and panel; sub-group reports ended in five mandatory "impact dimension" paragraphs that read as a deep-dive; synthesis repeated itself; the analyst had to click through two checkpoints and then read rather than ask.
+
+### What was done
+
+**Backend**
+- Sub-groups now run concurrently (`_merge_streams`, asyncio queue + semaphore, `SUBGROUP_CONCURRENCY` default 6) and synthesis runs automatically in the same stream. The `analysis_checkpoint` event and the "Run synthesis" pause are gone; `stage_transition → chatting` is the last event.
+- Tool loop: searches within a round run concurrently off the event loop; `top_k` 8 → 5; at most 3 search rounds, then `tool_choice="none"`; `max_output_tokens` guard; `incomplete` (max tokens) keeps partial text. `evidence_search*` events carry the sub-group `index`.
+- Models default to `gpt-6-sol`; reasoning effort low for scan/sub-group/socratic/chat, medium for synthesis (`OPENAI_SYNTHESIS_REASONING_EFFORT`). Output caps on scan, synthesis and chat.
+- Prompts slimmed with word budgets. Sub-group report: Who is impacted / Benefits and harms / Also worth noting (optional, one line per material dimension) / Uncertainties, ≤650 words. Synthesis: Equity Assessment (who benefits most, who benefits least or is harmed, where groups diverge), Risks & Provocations (evidence gaps, key assumptions and tensions), Design Improvements reframed as challenges to the spec, one `###` per outcome of interest. Scan tables show only High/Moderate rows.
+- Follow-up chat is grounded in the reports: the frontend sends `analysis_texts` on every chatting-stage request; `system.md` rewritten (≤150 words, `[SGn]` citations, always ends with three `<suggested_answers>` chips). The chain ends with three deep-dive chips taken from the design card's `suggested_followups`.
+- Retrieval hygiene: one cached embedding client, Qdrant search behind a lock, chat-stage retrieval off the event loop.
+- `tests/test_orchestrator.py`: merge runner and synthesis section parser.
+
+**Frontend**
+- "Proceed to analysis" and "Run analysis (N sub-groups)" are chips in the chat; sidebar keeps sub-group editing only. Run synthesis button and `awaitingSynthesis` removed.
+- Parallel progress: per-step status + elapsed timer; `streamingSections` set instead of a single value; search lists keyed by `index`; optimistic active steps and skeletons on click.
+- Density: every section with a summary card opens summary-first ("Read the full report"); expanded reports render each `###` block as a native `<details>` with only "Benefits and harms" / "Who benefits most" open by default; duplicated headlines removed from sidebar and chat; `MessageBubble` memoised.
+- Chips render in the chatting stage (no Skip chip outside specifying). Fixed `return` → `continue` bug in the `summary_card` handler. Session cache v7.
+
+### Measured (live run, price-cap policy, 6 sub-groups)
+
+| Stage | Before (GPT-5.6, sequential) | After (GPT-6 Sol, parallel) |
+|---|---|---|
+| Relevance scan | 70 s, 4,080 output tokens | 31 s, 2,600 tokens |
+| Sub-group analyses (all) | ~10 min (110 s each, one after another) | 24 s wall-clock (~1,050 tokens each, one search round of 4 queries + one writing round) |
+| Synthesis | 112–165 s, 4,500 tokens | 43 s, 2,400 tokens |
+| Chain (sub-groups + synthesis) | ~13 min | 67 s |
+| Follow-up chat | n/a | 5 s, ~140 words, cites `[SGn]` and evidence, ends with 3 chips |
+
+Scan remains the longest single step; its tables are still ~12k characters.

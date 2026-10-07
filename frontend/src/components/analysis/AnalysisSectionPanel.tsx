@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { ChevronRight } from "lucide-react";
 import {
   normalizeMarkdownBlockBreaks,
   stripArtifactTailBlocks,
@@ -19,6 +20,16 @@ import type { RawEvidenceSearch, SubGroup } from "@/lib/types";
 import { BadgePopoverManager } from "./BadgePopover";
 import { ArtifactSkeleton } from "./ArtifactSkeleton";
 import { isSynthesisSection } from "@/lib/analysis-sections";
+import { DEFAULT_OPEN, splitByH3 } from "@/lib/markdown-sections";
+
+// Memoised per block so streaming re-renders only the block still growing.
+const MdBlockView = memo(function MdBlockView({ md }: { md: string }) {
+  return (
+    <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+      {md}
+    </Markdown>
+  );
+});
 
 const TRAILING_PARTIAL_TAG_REGEX = /\s*<[a-z_]{0,25}$/;
 
@@ -55,18 +66,17 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
   const userScrolledUp = useRef(false);
   const scrollRafRef = useRef<number | null>(null);
 
-  // Sub-group reports open in summary view; the panel remounts per section
-  // (keyed by sectionId), so this resets on navigation. Sections mounted
-  // mid-stream stay expanded so live content never disappears under the reader.
+  // Sections with a summary card open in summary view; the panel remounts per
+  // section (keyed by sectionId), so this resets on navigation. Sections
+  // mounted mid-stream stay expanded so live content never disappears.
   const [expanded, setExpanded] = useState(isStreaming);
   useEffect(() => {
     if (isStreaming) setExpanded(true);
   }, [isStreaming]);
-  const summaryOnly =
-    !expanded &&
-    !isStreaming &&
-    !!summaryCard &&
-    (sectionId?.startsWith("sg_") ?? false);
+  const summaryOnly = !expanded && !isStreaming && !!summaryCard;
+  // Captured once at mount: live text is never hidden, and nothing collapses
+  // under the reader when the stream ends.
+  const [openAll] = useState(isStreaming);
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -133,6 +143,12 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
     return normalizeMarkdownBlockBreaks(withBadges);
   }, [content, isStreaming]);
 
+  // Policy summary (no sectionId) renders flat; reports fold per ### block.
+  const blocks = useMemo(
+    () => (sectionId ? splitByH3(processed) : [{ heading: "", body: processed }]),
+    [processed, sectionId],
+  );
+
   const skeletonType = (() => {
     if (!isStreaming || content.trim()) return null;
     if (sectionId === "scan") return "scan" as const;
@@ -164,11 +180,10 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
                 onClick={() => setExpanded(true)}
                 className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] transition-all hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
               >
-                Read the full analysis
+                Read the full report
               </button>
               <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-                The full analysis explains each finding with evidence badges,
-                impact dimensions, and uncertainties.
+                The full report explains each finding with its evidence badges.
               </p>
             </div>
           )}
@@ -186,9 +201,26 @@ export const AnalysisSectionPanel = memo(function AnalysisSectionPanel({
           {!summaryOnly && (
             <>
               <div ref={proseRef} className="prose mx-auto max-w-3xl">
-                <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                  {processed}
-                </Markdown>
+                {blocks.map(({ heading, body }, i) =>
+                  heading ? (
+                    <details
+                      key={i}
+                      open={openAll || DEFAULT_OPEN.test(heading)}
+                      className="group"
+                    >
+                      <summary className="my-3 flex cursor-pointer list-none items-center gap-1.5 text-base font-semibold text-[var(--color-text)] hover:text-[var(--color-accent)] [&::-webkit-details-marker]:hidden">
+                        <ChevronRight
+                          size={16}
+                          className="shrink-0 text-[var(--color-text-muted)] transition-transform group-open:rotate-90"
+                        />
+                        {heading.replace(/<[^>]*>/g, "").replace(/[*_`]/g, "").trim()}
+                      </summary>
+                      <MdBlockView md={body} />
+                    </details>
+                  ) : (
+                    <MdBlockView key={i} md={body} />
+                  ),
+                )}
                 {isStreaming && (
                   <div className="mt-2 flex items-center gap-1.5">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-text-muted)]" />

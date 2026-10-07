@@ -99,6 +99,7 @@ export interface SummaryCard {
   high_count?: number;
   moderate_count?: number;
   low_count?: number;
+  suggested_followups?: string[];
 }
 
 export interface SummaryCardEvent {
@@ -117,6 +118,9 @@ export interface AnalysisStep {
   name?: string;
   status: AnalysisStepStatus;
   searches?: EvidenceSearchRecord[];
+  activeQuery?: string | null;
+  writing?: boolean;
+  startedAt?: number;
 }
 
 export interface AnalysisProgress {
@@ -137,6 +141,7 @@ export interface AnalysisStepEvent {
 export interface EvidenceSearchEvent {
   type: "evidence_search";
   query: string;
+  index?: number;
 }
 
 export interface StageTransitionEvent {
@@ -160,11 +165,6 @@ export interface AnalysisSection {
   content: string;
 }
 
-export interface AnalysisCheckpointEvent {
-  type: "analysis_checkpoint";
-  subgroup_count: number;
-}
-
 export interface ScanCategoryCompleteEvent {
   type: "scan_category_complete";
   completed: number;
@@ -177,7 +177,6 @@ export type AnalysisDataEvent =
   | StageTransitionEvent
   | ProposedSubGroupsEvent
   | AnalysisContentEvent
-  | AnalysisCheckpointEvent
   | ScanCategoryCompleteEvent
   | SubgroupEvidenceEvent
   | StepSummaryEvent

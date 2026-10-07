@@ -1,6 +1,7 @@
 "use client";
 
 import type { Message } from "ai";
+import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -43,7 +44,9 @@ interface MessageBubbleProps {
   message: Message;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({
+  message,
+}: MessageBubbleProps) {
   const isUser = message.role === "user";
   const displayContent = isUser
     ? message.content
@@ -75,4 +78,4 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
     </div>
   );
-}
+});

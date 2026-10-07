@@ -3,15 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowRight,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   FileText,
   HelpCircle,
   Info,
-  Play,
   Search,
   X,
 } from "lucide-react";
@@ -29,10 +26,7 @@ import {
   SYNTHESIS_SECTION_IDS,
   SYNTHESIS_SECTION_LABELS,
   SYNTHESIS_ACTIVE_STATUS,
-  countUniqueEvidenceSources,
-  formatSubgroupSearchingStatus,
-  formatSubgroupWritingStatus,
-  type ActiveStepPhase,
+  fmtElapsed,
   type SynthesisSectionId,
 } from "@/lib/analysis-sections";
 
@@ -45,16 +39,9 @@ interface SpecificationSidebarProps {
   proposedSubGroups?: ProposedSubGroups | null;
   confirmedSubGroups?: SubGroup[] | null;
   analysisProgress?: AnalysisProgress;
-  onRunAnalysis?: () => void;
-  onRunSynthesis?: () => void;
-  awaitingSynthesis?: boolean;
   onRemoveSubGroup?: (id: string) => void;
-  isLoading?: boolean;
-  activeEvidenceSearch?: string | null;
   onSelectSection?: (sectionId: string) => void;
   synthesisSubsteps?: Record<SynthesisSectionId, AnalysisStep["status"]>;
-  activeStepPhase?: ActiveStepPhase;
-  stepSummaries?: Map<string, string>;
   sgLabels?: Map<string, string>;
   streamingSection?: string | null;
   scanCategoryProgress?: { completed: number; total: number } | null;
@@ -503,16 +490,9 @@ export function SpecificationSidebar({
   proposedSubGroups,
   confirmedSubGroups,
   analysisProgress,
-  onRunAnalysis,
-  onRunSynthesis,
-  awaitingSynthesis,
   onRemoveSubGroup,
-  isLoading,
-  activeEvidenceSearch,
   onSelectSection,
   synthesisSubsteps,
-  activeStepPhase = null,
-  stepSummaries,
   sgLabels,
   streamingSection = null,
   scanCategoryProgress = null,
@@ -531,6 +511,20 @@ export function SpecificationSidebar({
     (s) => s.status === "active" || s.status === "complete" || s.status === "error",
   );
   const isComplete = analysisProgress?.isComplete ?? false;
+
+  // Tick once a second only while some step is running, for the m:ss timers.
+  const anyActive = steps.some((s) => s.status === "active");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!anyActive) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [anyActive]);
+  const elapsed = (step: AnalysisStep | null | undefined) =>
+    step?.status === "active" && step.startedAt
+      ? ` · ${fmtElapsed(now - step.startedAt)}`
+      : "";
 
   const hasSubGroups =
     confirmedSubGroups && confirmedSubGroups.length > 0;
@@ -570,8 +564,8 @@ export function SpecificationSidebar({
                 subtitle={
                   scanStep.status === "active"
                     ? scanCategoryProgress && scanCategoryProgress.completed > 0
-                      ? `${scanCategoryProgress.completed} of ${scanCategoryProgress.total} categories assessed`
-                      : "Assessing population characteristics…"
+                      ? `${scanCategoryProgress.completed} of ${scanCategoryProgress.total} categories assessed${elapsed(scanStep)}`
+                      : `Assessing population characteristics…${elapsed(scanStep)}`
                     : scanStep.status === "complete"
                       ? scanSummary
                       : null
@@ -602,60 +596,18 @@ export function SpecificationSidebar({
                 const label = sgPrefix ? `${sgPrefix}: ${baseName}` : baseName;
                 const isActive = step.status === "active";
                 const stepSearches = step.searches ?? [];
-                const summary = stepSummaries?.get(sectionId);
 
                 let phaseSubtitle: string | null = null;
                 if (isActive) {
-                  if (activeStepPhase === "writing") {
-                    const sourceCount = countUniqueEvidenceSources(stepSearches);
-                    phaseSubtitle = formatSubgroupWritingStatus(
-                      Math.max(sourceCount, 1),
-                    );
-                  } else {
-                    phaseSubtitle = formatSubgroupSearchingStatus(
-                      stepSearches.length,
-                      Boolean(activeEvidenceSearch),
-                    );
-                  }
+                  phaseSubtitle =
+                    (step.writing
+                      ? "Writing report"
+                      : step.activeQuery || stepSearches.length
+                        ? `Searching evidence (${stepSearches.length + (step.activeQuery ? 1 : 0)})`
+                        : "Starting…") + elapsed(step);
                 } else if (step.status === "error") {
                   phaseSubtitle = "Analysis failed — skipped";
                 }
-
-                let activeContent: React.ReactNode = null;
-                if (
-                  isActive &&
-                  (activeEvidenceSearch || stepSearches.length > 0)
-                ) {
-                  activeContent = (
-                    <SearchList
-                      searches={stepSearches}
-                      activeQuery={
-                        activeStepPhase === "searching"
-                          ? activeEvidenceSearch
-                          : null
-                      }
-                      isStepActive
-                    />
-                  );
-                }
-
-                const completedContent =
-                  step.status === "complete" || step.status === "error" ? (
-                    <>
-                      {stepSearches.length > 0 && (
-                        <SearchList
-                          searches={stepSearches}
-                          activeQuery={null}
-                          isStepActive={false}
-                        />
-                      )}
-                      {summary && step.status === "complete" && (
-                        <p className="mt-1 text-[10px] leading-snug text-[var(--color-text-muted)]">
-                          {summary}
-                        </p>
-                      )}
-                    </>
-                  ) : null;
 
                 return (
                   <StepEntry
@@ -666,10 +618,13 @@ export function SpecificationSidebar({
                     isLast={isLast && !synthesisStep}
                     onClick={() => onSelectSection?.(sectionId)}
                     activeContent={
-                      <>
-                        {activeContent}
-                        {completedContent}
-                      </>
+                      (stepSearches.length > 0 || step.activeQuery) && (
+                        <SearchList
+                          searches={stepSearches}
+                          activeQuery={step.activeQuery ?? null}
+                          isStepActive={isActive}
+                        />
+                      )
                     }
                   />
                 );
@@ -685,16 +640,6 @@ export function SpecificationSidebar({
                 <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
                   Synthesis
                 </h3>
-                {awaitingSynthesis && (
-                  <button
-                    onClick={onRunSynthesis}
-                    disabled={isLoading}
-                    className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:opacity-50"
-                  >
-                    <FileText size={16} />
-                    Run synthesis
-                  </button>
-                )}
                 <div className="synthesis-substep space-y-0">
                   {SYNTHESIS_SECTION_IDS.map((sectionId, i) => {
                     const subStatus =
@@ -711,9 +656,8 @@ export function SpecificationSidebar({
                           )
                             ? streamingSection
                             : sectionId) as SynthesisSectionId
-                        ]
+                        ] + elapsed(synthesisStep)
                       : null;
-                    const synthesisSummary = stepSummaries?.get(sectionId);
                     return (
                       <StepEntry
                         key={sectionId}
@@ -723,13 +667,6 @@ export function SpecificationSidebar({
                         isLast={i === SYNTHESIS_SECTION_IDS.length - 1}
                         onClick={() => onSelectSection?.(sectionId)}
                         completedVariant="synthesis"
-                        activeContent={
-                          subStatus === "complete" && synthesisSummary ? (
-                            <p className="mt-1 text-[10px] leading-snug text-[var(--color-text-muted)]">
-                              {synthesisSummary}
-                            </p>
-                          ) : null
-                        }
                       />
                     );
                   })}
@@ -764,20 +701,6 @@ export function SpecificationSidebar({
           )}
         </div>
 
-        {subGroupsEditable && (
-          <div className="border-t border-[var(--color-border)] p-4">
-            <button
-              onClick={onRunAnalysis}
-              disabled={
-                isLoading || !confirmedSubGroups || confirmedSubGroups.length === 0
-              }
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-            >
-              <Play size={16} />
-              Run analysis ({confirmedSubGroups!.length} sub-groups)
-            </button>
-          </div>
-        )}
       </aside>
     );
   }
@@ -833,22 +756,13 @@ export function SpecificationSidebar({
         )}
       </div>
 
-      {isSpecifying && (
-        <div className="border-t border-[var(--color-border)] p-4">
+      {isSpecifying && !spec.ready_for_analysis && spec.policy_summary && (
+        <div className="border-t border-[var(--color-border)] px-4 py-3 text-center">
           <button
             onClick={onProceed}
-            className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-              spec.ready_for_analysis
-                ? "bg-[var(--color-accent)] text-white hover:opacity-90"
-                : "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-text)]"
-            }`}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:underline"
           >
-            {spec.ready_for_analysis ? (
-              <CheckCircle2 size={16} />
-            ) : (
-              <ArrowRight size={16} />
-            )}
-            Proceed to analysis
+            Proceed anyway
           </button>
         </div>
       )}

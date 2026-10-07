@@ -33,7 +33,7 @@ interface AnalysisViewProps {
   policyName?: string | null;
   sections: Map<string, AnalysisSection>;
   activeSection: string | null;
-  streamingSection: string | null;
+  streamingSections: Set<string>;
   subgroupEvidence: Map<string, RawEvidenceSearch[]>;
   summaryCards?: Map<string, SummaryCard>;
   confirmedSubGroups?: SubGroup[] | null;
@@ -77,7 +77,7 @@ export function AnalysisView({
   policyName,
   sections,
   activeSection,
-  streamingSection,
+  streamingSections,
   subgroupEvidence,
   summaryCards,
   confirmedSubGroups,
@@ -153,7 +153,7 @@ export function AnalysisView({
     );
   }
 
-  const isStreaming = streamingSection === effectiveSection;
+  const isStreaming = !!effectiveSection && streamingSections.has(effectiveSection);
   const isSynthesis =
     effectiveSection !== null && isSynthesisSection(effectiveSection);
   const title = isSynthesis

@@ -1,7 +1,6 @@
 import type {
   AnalysisSection,
   AnalysisStepStatus,
-  EvidenceSearchRecord,
   SubGroup,
 } from "@/lib/types";
 
@@ -27,9 +26,9 @@ export const FIXED_SECTION_SUBTITLES: Record<string, string> = {
   equity_assessment:
     "Who benefits most and least from this policy — inequality impact direction and distributional effects.",
   risks_provocations:
-    "Evidence gaps, assumption risks, equity tensions, and unintended consequences that warrant attention.",
+    "Evidence gaps to close, and the key assumptions and tensions worth testing.",
   design_improvements:
-    "Actionable recommendations for making this policy more equitable across population groups.",
+    "Challenges to the policy design against your outcomes of interest, with suggested changes.",
 };
 
 const STOP_WORDS = new Set([
@@ -394,8 +393,6 @@ export function deriveSynthesisSubstepStatus(
 export const EMPTY_SYNTHESIS_SECTION_NOTE =
   "This section was not generated separately — see Equity Assessment.";
 
-export type ActiveStepPhase = "searching" | "writing" | null;
-
 export const SYNTHESIS_ACTIVE_STATUS: Record<SynthesisSectionId, string> = {
   equity_assessment: "Writing equity assessment...",
   risks_provocations: "Identifying risks and provocations...",
@@ -436,31 +433,21 @@ export function buildSgLabels(subgroupCount: number): Map<string, string> {
   return labels;
 }
 
-/** Count distinct evidence sources across completed searches for a step. */
-export function countUniqueEvidenceSources(
-  searches: EvidenceSearchRecord[] | undefined,
-): number {
-  const names = new Set<string>();
-  for (const search of searches ?? []) {
-    for (const name of search.sourceNames ?? []) {
-      if (name.trim()) names.add(name);
-    }
-  }
-  return names.size;
+/** Elapsed time as m:ss. */
+export function fmtElapsed(ms: number): string {
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
-/** Status line while the active sub-group step is searching the evidence base. */
-export function formatSubgroupSearchingStatus(
-  completedSearches: number,
-  inFlight: boolean,
-): string {
-  const count = completedSearches + (inFlight ? 1 : 0);
-  if (count === 0) return "Searching evidence base...";
-  return `Searching evidence base... (${count})`;
-}
-
-/** Status line while the active sub-group step is writing analysis text. */
-export function formatSubgroupWritingStatus(sourceCount: number): string {
-  const label = sourceCount === 1 ? "source" : "sources";
-  return `Generating analysis from ${sourceCount} ${label}...`;
+/** Report texts sent with chatting-stage requests: sub-groups in index order, then synthesis. */
+export function buildAnalysisTexts(
+  sections: Map<string, AnalysisSection>,
+): { id: string; name: string; text: string }[] {
+  const subgroups = [...sections.values()]
+    .filter((s) => s.id.startsWith("sg_"))
+    .sort((a, b) => parseInt(a.id.slice(3), 10) - parseInt(b.id.slice(3), 10));
+  const synthesis = SYNTHESIS_SECTION_IDS.flatMap((id) => sections.get(id) ?? []);
+  return [...subgroups, ...synthesis]
+    .map((s) => ({ id: s.id, name: s.name, text: stripArtifactTailBlocks(s.content) }))
+    .filter((t) => t.text.trim());
 }
