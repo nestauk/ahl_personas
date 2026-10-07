@@ -132,8 +132,7 @@ def chunk_source(
         metadata_text = (
             f"Source: {source.source_name}\n"
             f"Year: {source.year or 'Unknown'}\n"
-            f"Data type: {source.data_type or 'Unknown'}\n\n"
-            + "\n\n".join(metadata_parts)
+            f"Data type: {source.data_type or 'Unknown'}\n\n" + "\n\n".join(metadata_parts)
         )
         metadata_chunks = chunk_text(
             metadata_text,

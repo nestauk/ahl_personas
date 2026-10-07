@@ -126,6 +126,8 @@ Rules:
 - Prioritise the analysts' priority modifiers when they are rated HIGH
 - Each sub-group should represent a distinct combination of material constraints — avoid near-duplicates
 - Keep sub-groups only as specific as the policy demands: every modifier in the combination must earn its place by altering the expected impact
+- A modifier that describes the policy's whole target population (e.g. "Family with children" for a scheme aimed at families with young children, or "Financially strained" for a means-tested benefit) is background, not a differentiator. Do **not** repeat it in every sub-group; state it once in the summary line and build the sub-groups from the modifiers that vary *within* that population
+- Give each sub-group a **plain-English name of 3–7 words** that an analyst would say out loud (e.g. "Rural families without a car", "Lone parents on Universal Credit", "Digitally excluded parents"). Never join modifier labels with "+". The modifier labels go in the JSON `modifiers` array, not the name
 - If the policy specification lists **equity-related outcomes of interest**, weight your relevance ratings and sub-group composition towards modifiers that bear on those outcomes
 - Briefly explain why each sub-group was selected and what differential impact you expect
 
@@ -202,9 +204,9 @@ The category headings must be:
 
 After the relevance assessment, present 4–6 proposed sub-groups. Format **exactly** as shown:
 
-#### 1. Urban deprived + Financially strained + Family with children
+#### 1. Low-income families in deprived urban areas
 
-**Why:** 30 words or fewer on why this group was selected and the differential impact you expect.
+**Why:** 30 words or fewer on why this group was selected and the differential impact you expect. Name the defining modifiers in words here if they are not obvious from the name.
 
 Continue with `#### 2.`, `#### 3.`, etc.
 
@@ -230,7 +232,7 @@ The JSON must follow this exact structure:
   "subgroups": [
     {
       "id": "sg_1",
-      "name": "Urban deprived + Financially strained + Family with children",
+      "name": "Low-income families in deprived urban areas",
       "modifiers": [
         {"category": "geography", "value": "Urban deprived"},
         {"category": "household_financial", "value": "Financially strained"},
@@ -241,7 +243,7 @@ The JSON must follow this exact structure:
     },
     {
       "id": "sg_2",
-      "name": "Non-mainstream dietary traditions + Financially strained + Urban deprived",
+      "name": "Low-income urban households with non-mainstream diets",
       "categorical": true,
       "category_pattern": {
         "category": "ethnicity",
@@ -272,6 +274,7 @@ The JSON must follow this exact structure:
 
 Rules for the JSON:
 - `id` should be sequential: `sg_1`, `sg_2`, etc.
+- `name` is the plain-English name (3–7 words, no "+"). It is shown in the sidebar, in chat and in follow-up suggestions, so it must read naturally in a sentence
 - `category` must be one of: `geography`, `household_financial`, `time_routine`, `cognitive_bandwidth`, `diet_health`, `ethnicity`
 - `value` must match the exact modifier name from the personas framework tables above
 - `relevance_scan` should include every modifier from every category with its rating

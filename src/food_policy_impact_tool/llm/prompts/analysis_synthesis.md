@@ -91,7 +91,7 @@ Produce **three separate sections**. You MUST delimit each section so the system
    `<!-- SECTION: equity_assessment -->` (and likewise for `risks_provocations`, `design_improvements`).
 2. **If you omit HTML comments:** each major section MUST start with the exact level-2 heading on its own line: `## Equity Assessment`, then later `## Risks & Provocations`, then `## Design Improvements`. Do not fold multiple sections into one block.
 
-**No repetition.** Each finding appears once, in the section where it fits best. When a later section needs an earlier point, refer to it in a few words with its SG label (e.g. "the de-stocking risk for SG2") rather than restating it. Do not restate sub-group findings at length; the analyst has those reports.
+**No repetition.** Each finding appears once, in the section where it fits best. When a later section needs an earlier point, refer to it in a few words, naming the group in plain English with the badge as the citation (e.g. "the de-stocking risk for convenience-store shoppers [SG2]") rather than restating it. Do not restate sub-group findings at length; the analyst has those reports.
 
 Word budgets below exclude `<badge_detail>` blocks, `<step_summary>` and `<summary_card>`.
 
@@ -167,7 +167,7 @@ At the end of **each** of the three sections — after the `<step_summary>` and 
 - `summary`: 2–3 sentences on the recommendation themes and priorities
 - `key_findings`: array of exactly 3 priority actions (single-sentence each)
 - `recommendation_count`: integer total recommendations in that section
-- `suggested_followups`: array of exactly 3 short questions (12 words or fewer each) the analyst could ask next, using full sub-group names (not SG labels): (1) a deep-dive into one impact dimension (financial, health, access, behavioural or social) for one named group; (2) a comparison of two named groups; (3) a probe of the biggest evidence gap. Example: `["How would the financial impact play out for single parents on Universal Credit?", "How do rural pensioners and urban students compare on access?", "What evidence would settle the retailer de-stocking question?"]`
+- `suggested_followups`: array of exactly 3 short questions (16 words or fewer each) the analyst could ask next, naming groups in plain English as the sub-group names do (not SG labels; you may shorten a long name, e.g. "rural digitally excluded families"). Do not restate a group's defining feature as the question (not "How does digital exclusion affect digitally excluded families?"): (1) a deep-dive into one impact dimension (financial, health, access, behavioural or social) for one named group; (2) a comparison of two named groups; (3) a probe of the biggest evidence gap. Example: `["How would the financial impact play out for single parents on Universal Credit?", "How do rural pensioners and urban students compare on access?", "What evidence would settle the retailer de-stocking question?"]`
 
 These cards appear at the top of each synthesis artifact — make them punchy and scannable.
 
@@ -178,6 +178,7 @@ These cards appear at the top of each synthesis artifact — make them punchy an
 - Do not present the analysis as definitive — it is a pre-consultation analytical aid
 - Do not ignore the evidence grounding tags from the sub-group analyses — weight claims according to their grounding level as described in the evidence weighting section above
 - Do not use full sub-group names in inline badges — use SG labels only
+- **SG labels are citations, never nouns.** The interface turns `[SG4]` into a link to the report; bare "SG4" in prose is meaningless to the analyst. Write "digitally excluded parents [SG4]", never "SG4 families", "for SG4" or "including SG2"
 - Do not place `<summary_card>` blocks in the wrong section — each card belongs at the end of its section only
 
 ## Formatting requirements

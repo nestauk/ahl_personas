@@ -34,9 +34,7 @@ def test_merge_streams_interleaves_and_preserves_per_source_order():
 
 def test_merge_streams_respects_limit():
     log: list[str] = []
-    items = asyncio.run(
-        _collect([_source("a", 3, log), _source("b", 3, log)], limit=1)
-    )
+    items = asyncio.run(_collect([_source("a", 3, log), _source("b", 3, log)], limit=1))
 
     assert [name for name, _ in items] == ["a"] * 3 + ["b"] * 3
     assert log == ["start a", "end a", "start b", "end b"]
@@ -61,8 +59,7 @@ def test_synthesis_parser_routes_sections_and_drains_cards():
         + "<!-- SECTION: design_improvements -->\n## Design Improvements\n\n"
         "Challenges against your outcomes of interest: diet quality.\n\n"
         "### Diet quality\n\n- **Challenge**: a. **Change**: b.\n\n"
-        "<step_summary>Design summary.</step_summary>\n"
-        + _card("design_improvements", suggested_followups=followups)
+        "<step_summary>Design summary.</step_summary>\n" + _card("design_improvements", suggested_followups=followups)
     )
 
     parser = _SynthesisSectionParser()
@@ -94,3 +91,25 @@ def test_synthesis_parser_routes_sections_and_drains_cards():
     }
     assert set(cards) == set(routed)
     assert cards["design_improvements"]["suggested_followups"] == followups
+
+
+def test_synthesis_parser_consumes_split_heading_lines():
+    """A heading line arriving in small chunks must not leave a stray "## " behind."""
+    text = (
+        "<!-- SECTION: equity_assessment -->\n## Equity Assessment\n**Bold**\n"
+        "<!-- SECTION: risks_provocations -->\n## Risks & Provocations\n### Evidence gaps\n"
+        "<!-- SECTION: design_improvements -->\n## Design Improvements\nChallenges\n"
+    )
+    for size in (1, 3, 7, 11):
+        parser = _SynthesisSectionParser()
+        out = []
+        for i in range(0, len(text), size):
+            out += parser.feed(text[i : i + size])
+        out += parser.flush()
+        joined = {
+            sid: "".join(c for s, c in out if s == sid)
+            for sid in ("equity_assessment", "risks_provocations", "design_improvements")
+        }
+        assert joined["equity_assessment"] == "**Bold**\n", (size, joined)
+        assert joined["risks_provocations"] == "### Evidence gaps\n", (size, joined)
+        assert joined["design_improvements"] == "Challenges\n", (size, joined)

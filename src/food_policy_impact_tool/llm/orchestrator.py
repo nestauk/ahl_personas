@@ -39,6 +39,8 @@ def _get_client() -> AsyncOpenAI:
         settings = get_settings()
         _client = AsyncOpenAI(api_key=settings.openai_api_key)
     return _client
+
+
 _SPEC_BLOCK_PATTERN = re.compile(
     r"<policy_spec>\s*(.*?)\s*</policy_spec>",
     re.DOTALL,
@@ -72,11 +74,13 @@ _SYNTHESIS_SECTION_MARKER_LINE = re.compile(
     r"^\s*<!--\s*SECTION:\s*(equity_assessment|risks_provocations|design_improvements)\s*-->\s*$",
     re.IGNORECASE,
 )
-_VALID_SYNTHESIS_SECTIONS = frozenset({
-    "equity_assessment",
-    "risks_provocations",
-    "design_improvements",
-})
+_VALID_SYNTHESIS_SECTIONS = frozenset(
+    {
+        "equity_assessment",
+        "risks_provocations",
+        "design_improvements",
+    }
+)
 # Fallback when the model omits HTML markers but uses section titles (with or without ##).
 _SYNTHESIS_HEADING_LINES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^#{1,2}\s*Equity Assessment\s*$", re.IGNORECASE), "equity_assessment"),
@@ -109,7 +113,8 @@ _FALLBACK_FOLLOWUPS = [
 
 
 async def _merge_streams(
-    factories: list[Any], limit: int,
+    factories: list[Any],
+    limit: int,
 ) -> AsyncIterator[Any]:
     """Run async-iterator factories concurrently (at most `limit` at once), yielding
     items as they arrive. Order is preserved within each source, not across them."""
@@ -148,9 +153,11 @@ def _format_analyses(analysis_texts: list[dict[str, str]]) -> str:
     others: list[dict[str, str]] = []
     for a in analysis_texts:
         (sgs if a.get("id", "sg_").startswith("sg_") else others).append(a)
-    text = "Sub-group reference labels:\n" + "\n".join(
-        f"- SG{i}: {a.get('name', '')}" for i, a in enumerate(sgs, 1)
-    ) + "\n"
+    text = (
+        "Sub-group reference labels:\n"
+        + "\n".join(f"- SG{i}: {a.get('name', '')}" for i, a in enumerate(sgs, 1))
+        + "\n"
+    )
     for i, a in enumerate(sgs, 1):
         text += f"\n\n### SG{i}: {a.get('name', '')}\n\n{a.get('text', '')}"
     for a in others:
@@ -162,10 +169,22 @@ class _SynthesisSectionParser:
     """Splits synthesis stream on SECTION markers and recognised section headings."""
 
     _PARTIAL_PREFIXES = (
-        "<", "<!", "<!--", "<!-- ", "<!-- S", "<!-- SE", "<!-- SEC",
-        "<!-- SECT", "<!-- SECTI", "<!-- SECTIO", "<!-- SECTION",
-        "<!-- SECTION:", "<!-- SECTION: ", "<!-- SECTION: e",
-        "<!-- SECTION: equity_assessment", "<!-- SECTION: risks_provocations",
+        "<",
+        "<!",
+        "<!--",
+        "<!-- ",
+        "<!-- S",
+        "<!-- SE",
+        "<!-- SEC",
+        "<!-- SECT",
+        "<!-- SECTI",
+        "<!-- SECTIO",
+        "<!-- SECTION",
+        "<!-- SECTION:",
+        "<!-- SECTION: ",
+        "<!-- SECTION: e",
+        "<!-- SECTION: equity_assessment",
+        "<!-- SECTION: risks_provocations",
         "<!-- SECTION: design_improvements",
     )
 
@@ -174,9 +193,7 @@ class _SynthesisSectionParser:
         self._buffer = ""
         self._sections_seen: set[str] = {"equity_assessment"}
         self._pending_section_transitions: list[str] = []
-        self._section_accum: dict[str, str] = {
-            section: "" for section in _VALID_SYNTHESIS_SECTIONS
-        }
+        self._section_accum: dict[str, str] = {section: "" for section in _VALID_SYNTHESIS_SECTIONS}
         self._pending_summary_cards: list[tuple[str, dict[str, Any]]] = []
         self._pending_step_summaries: list[tuple[str, str]] = []
 
@@ -209,9 +226,7 @@ class _SynthesisSectionParser:
 
     def _record_section_content(self, section_id: str, content: str) -> None:
         if content:
-            self._section_accum[section_id] = (
-                self._section_accum.get(section_id, "") + content
-            )
+            self._section_accum[section_id] = self._section_accum.get(section_id, "") + content
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
         self._buffer += delta
@@ -285,12 +300,17 @@ class _SynthesisSectionParser:
 
     @classmethod
     def _find_partial_marker_start(cls, text: str) -> int | None:
+        # A trailing fragment of a "<!-- SECTION: ... -->" marker.
         for i in range(len(text) - 1, -1, -1):
             tail = text[i:]
             if any(p.startswith(tail) and p != tail for p in cls._PARTIAL_PREFIXES):
                 return i
-            if "\n" not in tail and cls._line_might_be_partial_heading(tail):
-                return i
+        # An incomplete line that might still become an H2 section heading. Check the
+        # whole line, not its suffixes: scanning suffixes matched "Equity" inside
+        # "## Equity", flushed the "## " and left an empty heading in the artifact.
+        line_start = text.rfind("\n") + 1
+        if cls._line_might_be_partial_heading(text[line_start:]):
+            return line_start
         return None
 
     @staticmethod
@@ -381,7 +401,7 @@ def _format_tool_evidence(results: list[RetrievalResult], query: str = "") -> st
     sections: list[str] = []
     for i, result in enumerate(results, 1):
         source = result.chunk.source
-        header = f"[Chunk {i}] Source: \"{source.source_name}\""
+        header = f'[Chunk {i}] Source: "{source.source_name}"'
         if source.year:
             header += f" ({source.year})"
         if result.chunk.page_number is not None:
@@ -526,10 +546,7 @@ def _extract_policy_spec_from_history(messages: list[ChatMessage]) -> str:
 
                 outcomes = spec.get("outcomes_of_interest", [])
                 if outcomes:
-                    lines.append(
-                        f"\nEquity-related outcomes of interest to the analyst: "
-                        f"{'; '.join(outcomes)}."
-                    )
+                    lines.append(f"\nEquity-related outcomes of interest to the analyst: {'; '.join(outcomes)}.")
 
                 return "\n".join(lines)
             except (json.JSONDecodeError, KeyError):
@@ -596,14 +613,16 @@ def _build_messages(
     ]
 
     if evidence_context is not None:
-        api_messages.append({
-            "role": "system",
-            "content": (
-                "The following evidence has been retrieved from the curated evidence base. "
-                "Use it to ground your response. Cite sources by name and year when you draw on them.\n\n"
-                f"{evidence_context}"
-            ),
-        })
+        api_messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "The following evidence has been retrieved from the curated evidence base. "
+                    "Use it to ground your response. Cite sources by name and year when you draw on them.\n\n"
+                    f"{evidence_context}"
+                ),
+            }
+        )
 
     for msg in messages:
         if msg.role in ("user", "assistant"):
@@ -634,13 +653,11 @@ def _format_subgroup_modifiers(sub_group: dict[str, Any]) -> str:
         if shared:
             lines.append(f"\nShared mechanism: {shared}")
         lines.append(
-            "\nAnalyse the shared pattern with examples from across these "
-            "modifiers, not a deep-dive into one."
+            "\nAnalyse the shared pattern with examples from across these modifiers, not a deep-dive into one."
         )
 
         non_categorical_mods = [
-            m for m in sub_group.get("modifiers", [])
-            if m.get("category") != cat_pattern.get("category")
+            m for m in sub_group.get("modifiers", []) if m.get("category") != cat_pattern.get("category")
         ]
         if non_categorical_mods:
             lines.append("\nAdditional modifiers:")
@@ -672,10 +689,13 @@ async def _stream_with_retry(
             last_error = exc
             if exc.status_code not in _RETRY_STATUS_CODES or attempt == _MAX_RETRIES:
                 raise
-            wait = 2 ** attempt
+            wait = 2**attempt
             logger.warning(
                 "OpenAI API error %d on attempt %d, retrying in %ds: %s",
-                exc.status_code, attempt + 1, wait, exc,
+                exc.status_code,
+                attempt + 1,
+                wait,
+                exc,
             )
             await asyncio.sleep(wait)
     raise last_error  # type: ignore[misc]
@@ -709,12 +729,19 @@ async def _stream_subgroup_with_tools(
     """
     settings = get_settings()
     raw_prompt = _load_prompt("analysis_subgroup.md")
-    system_prompt = raw_prompt.replace(
-        "{{POLICY_SPECIFICATION}}", policy_spec,
-    ).replace(
-        "{{SUB_GROUP_NAME}}", sub_group.get("name", "Unknown sub-group"),
-    ).replace(
-        "{{SUB_GROUP_MODIFIERS}}", _format_subgroup_modifiers(sub_group),
+    system_prompt = (
+        raw_prompt.replace(
+            "{{POLICY_SPECIFICATION}}",
+            policy_spec,
+        )
+        .replace(
+            "{{SUB_GROUP_NAME}}",
+            sub_group.get("name", "Unknown sub-group"),
+        )
+        .replace(
+            "{{SUB_GROUP_MODIFIERS}}",
+            _format_subgroup_modifiers(sub_group),
+        )
     )
 
     api_messages: list[dict[str, Any]] = [
@@ -750,13 +777,17 @@ async def _stream_subgroup_with_tools(
         if force_write:
             # ponytail: belt and braces alongside tool_choice="none" (untested with
             # previous_response_id); no hard round cap beyond this.
-            request_input.append({
-                "role": "user",
-                "content": "Search complete. Write the analysis now.",
-            })
+            request_input.append(
+                {
+                    "role": "user",
+                    "content": "Search complete. Write the analysis now.",
+                }
+            )
         logger.info(
             "[subgroup] '%s' round %d — sending to LLM (%d input items)",
-            sg_name, tool_call_round, len(request_input),
+            sg_name,
+            tool_call_round,
+            len(request_input),
         )
 
         subgroup_kwargs: dict[str, Any] = dict(
@@ -792,7 +823,8 @@ async def _stream_subgroup_with_tools(
                 if first_token:
                     logger.info(
                         "[subgroup] '%s' round %d — first text token after %.1fs",
-                        sg_name, tool_call_round,
+                        sg_name,
+                        tool_call_round,
                         time.monotonic() - round_start,
                     )
                     first_token = False
@@ -807,9 +839,16 @@ async def _stream_subgroup_with_tools(
             elif etype == "response.completed":
                 response_id = event.response.id
 
-            elif etype == "response.incomplete" and collected_text and getattr(
-                getattr(event.response, "incomplete_details", None), "reason", None,
-            ) == "max_output_tokens":
+            elif (
+                etype == "response.incomplete"
+                and collected_text
+                and getattr(
+                    getattr(event.response, "incomplete_details", None),
+                    "reason",
+                    None,
+                )
+                == "max_output_tokens"
+            ):
                 logger.warning("[subgroup] '%s' hit max_output_tokens — keeping partial text", sg_name)
                 function_calls = []
                 break
@@ -823,10 +862,12 @@ async def _stream_subgroup_with_tools(
         if not function_calls:
             text_len = sum(len(t) for t in collected_text)
             logger.info(
-                "[subgroup] '%s' round %d — generation complete, "
-                "%d chars in %.1fs (total %.1fs)",
-                sg_name, tool_call_round, text_len,
-                round_elapsed, time.monotonic() - sg_start,
+                "[subgroup] '%s' round %d — generation complete, %d chars in %.1fs (total %.1fs)",
+                sg_name,
+                tool_call_round,
+                text_len,
+                round_elapsed,
+                time.monotonic() - sg_start,
             )
             break
 
@@ -834,7 +875,10 @@ async def _stream_subgroup_with_tools(
         request_input = []
         logger.info(
             "[subgroup] '%s' round %d — LLM requested %d tool call(s) after %.1fs",
-            sg_name, tool_call_round, len(function_calls), round_elapsed,
+            sg_name,
+            tool_call_round,
+            len(function_calls),
+            round_elapsed,
         )
 
         queries: list[str | None] = []
@@ -850,14 +894,17 @@ async def _stream_subgroup_with_tools(
             yield ("data", {"type": "evidence_search", "query": query, "index": sg_index})
 
         retrieve_start = time.monotonic()
-        all_results = await asyncio.gather(*(
-            asyncio.to_thread(retriever.retrieve, q, 5) if q is not None
-            else asyncio.sleep(0, result=[])
-            for q in queries
-        ))
+        all_results = await asyncio.gather(
+            *(
+                asyncio.to_thread(retriever.retrieve, q, 5) if q is not None else asyncio.sleep(0, result=[])
+                for q in queries
+            )
+        )
         logger.info(
             "[subgroup] '%s' — %d searches in %.0fms",
-            sg_name, len(queries), (time.monotonic() - retrieve_start) * 1000,
+            sg_name,
+            len(queries),
+            (time.monotonic() - retrieve_start) * 1000,
         )
 
         for fc, query, results in zip(function_calls, queries, all_results, strict=True):
@@ -866,32 +913,37 @@ async def _stream_subgroup_with_tools(
             else:
                 tool_response = _format_tool_evidence(results, query=query)
                 if raw_searches is not None:
-                    raw_searches.append({
+                    raw_searches.append(
+                        {
+                            "query": query,
+                            "chunks": [
+                                {
+                                    "source_name": r.chunk.source.source_name,
+                                    "source_year": r.chunk.source.year,
+                                    "text": r.chunk.text,
+                                    "page_number": r.chunk.page_number,
+                                }
+                                for r in results
+                            ],
+                        }
+                    )
+                yield (
+                    "data",
+                    {
+                        "type": "evidence_search_complete",
                         "query": query,
-                        "chunks": [
-                            {
-                                "source_name": r.chunk.source.source_name,
-                                "source_year": r.chunk.source.year,
-                                "text": r.chunk.text,
-                                "page_number": r.chunk.page_number,
-                            }
-                            for r in results
-                        ],
-                    })
-                yield ("data", {
-                    "type": "evidence_search_complete",
-                    "query": query,
-                    "num_results": len(results),
-                    "source_names": list(dict.fromkeys(
-                        r.chunk.source.source_name for r in results
-                    )),
-                    "index": sg_index,
-                })
-            request_input.append({
-                "type": "function_call_output",
-                "call_id": fc.call_id,
-                "output": tool_response,
-            })
+                        "num_results": len(results),
+                        "source_names": list(dict.fromkeys(r.chunk.source.source_name for r in results)),
+                        "index": sg_index,
+                    },
+                )
+            request_input.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": fc.call_id,
+                    "output": tool_response,
+                }
+            )
 
         # Keepalive before the next LLM round.
         yield ("data", {"type": "heartbeat"})
@@ -918,9 +970,11 @@ async def _stream_synthesis(
     analyses_text = _format_analyses(sub_group_analyses)
 
     system_prompt = raw_prompt.replace(
-        "{{POLICY_SPECIFICATION}}", policy_spec,
+        "{{POLICY_SPECIFICATION}}",
+        policy_spec,
     ).replace(
-        "{{SUB_GROUP_ANALYSES}}", analyses_text,
+        "{{SUB_GROUP_ANALYSES}}",
+        analyses_text,
     )
 
     api_messages = [
@@ -999,10 +1053,13 @@ async def stream_analysis_chain(
 
     policy_spec = _extract_policy_spec_from_history(messages)
 
-    yield ("text", (
-        f"Analysing {n} sub-groups in parallel (about 2 minutes). While this runs: "
-        f"**where might helping one of these groups come at a cost to another?**\n\n"
-    ))
+    yield (
+        "text",
+        (
+            f"Analysing {n} sub-groups in parallel (about 2 minutes). While this runs: "
+            f"**where might helping one of these groups come at a cost to another?**\n\n"
+        ),
+    )
 
     texts: list[str | None] = [None] * n
 
@@ -1011,28 +1068,37 @@ async def stream_analysis_chain(
         section_id = f"sg_{i}"
         logger.info("[chain] --- Sub-group %d/%d START: '%s' ---", i + 1, n, sg_name)
         yield ("data", {"type": "heartbeat"})
-        yield ("data", {
-            "type": "analysis_step",
-            "step": "subgroup",
-            "index": i,
-            "name": sg_name,
-            "status": "active",
-        })
+        yield (
+            "data",
+            {
+                "type": "analysis_step",
+                "step": "subgroup",
+                "index": i,
+                "name": sg_name,
+                "status": "active",
+            },
+        )
         try:
             sg_start = time.monotonic()
             analysis_text: list[str] = []
             sg_raw_searches: list[dict[str, Any]] = []
             async for part in _stream_subgroup_with_tools(
-                client, policy_spec, sg, retriever,
+                client,
+                policy_spec,
+                sg,
+                retriever,
                 raw_searches=sg_raw_searches,
                 sg_index=i,
             ):
                 if part[0] == "text":
                     analysis_text.append(part[1])
-                    yield ("analysis_content", {
-                        "section": section_id,
-                        "delta": part[1],
-                    })
+                    yield (
+                        "analysis_content",
+                        {
+                            "section": section_id,
+                            "delta": part[1],
+                        },
+                    )
                 else:
                     yield part
 
@@ -1040,34 +1106,50 @@ async def stream_analysis_chain(
             texts[i] = _strip_artifact_tail_blocks(full_analysis)
             step_summary = _extract_step_summary(full_analysis)
             if step_summary:
-                yield ("data", {
-                    "type": "step_summary",
-                    "section_id": section_id,
-                    "summary": step_summary,
-                })
+                yield (
+                    "data",
+                    {
+                        "type": "step_summary",
+                        "section_id": section_id,
+                        "summary": step_summary,
+                    },
+                )
             summary_card = _extract_summary_card(full_analysis)
             if summary_card:
-                yield ("data", {
-                    "type": "summary_card",
-                    "section_id": section_id,
-                    "card": summary_card,
-                })
+                yield (
+                    "data",
+                    {
+                        "type": "summary_card",
+                        "section_id": section_id,
+                        "card": summary_card,
+                    },
+                )
             logger.info(
                 "[chain] Sub-group %d/%d COMPLETE: '%s' — %d chars in %.1fs",
-                i + 1, n, sg_name, len(full_analysis), time.monotonic() - sg_start,
+                i + 1,
+                n,
+                sg_name,
+                len(full_analysis),
+                time.monotonic() - sg_start,
             )
             if sg_raw_searches:
-                yield ("data", {
-                    "type": "subgroup_evidence",
-                    "section_id": section_id,
-                    "searches": sg_raw_searches,
-                })
-            yield ("data", {
-                "type": "analysis_step",
-                "step": "subgroup",
-                "index": i,
-                "status": "complete",
-            })
+                yield (
+                    "data",
+                    {
+                        "type": "subgroup_evidence",
+                        "section_id": section_id,
+                        "searches": sg_raw_searches,
+                    },
+                )
+            yield (
+                "data",
+                {
+                    "type": "analysis_step",
+                    "step": "subgroup",
+                    "index": i,
+                    "status": "complete",
+                },
+            )
             direction = (summary_card or {}).get("impact_direction")
             if not (isinstance(direction, str) and direction.strip()):
                 direction = step_summary
@@ -1077,35 +1159,43 @@ async def stream_analysis_chain(
             yield ("text", line + "\n\n")
         except Exception:
             logger.exception(
-                "[chain] Sub-group %d/%d FAILED: '%s'", i + 1, n, sg_name,
+                "[chain] Sub-group %d/%d FAILED: '%s'",
+                i + 1,
+                n,
+                sg_name,
             )
-            yield ("analysis_content", {
-                "section": section_id,
-                "delta": (
-                    f"\n\n> **Analysis error**: The analysis for sub-group "
-                    f"\"{sg_name}\" could not be completed. "
-                    f"The remaining sub-groups will continue.\n\n"
-                ),
-            })
-            yield ("data", {
-                "type": "analysis_step",
-                "step": "subgroup",
-                "index": i,
-                "status": "error",
-            })
+            yield (
+                "analysis_content",
+                {
+                    "section": section_id,
+                    "delta": (
+                        f"\n\n> **Analysis error**: The analysis for sub-group "
+                        f'"{sg_name}" could not be completed. '
+                        f"The remaining sub-groups will continue.\n\n"
+                    ),
+                },
+            )
+            yield (
+                "data",
+                {
+                    "type": "analysis_step",
+                    "step": "subgroup",
+                    "index": i,
+                    "status": "error",
+                },
+            )
             yield ("text", f"✗ **{sg_name}** — analysis failed\n\n")
 
-    factories = [
-        (lambda i=i, sg=sg: _run_one(i, sg))
-        for i, sg in enumerate(confirmed_subgroups)
-    ]
+    factories = [(lambda i=i, sg=sg: _run_one(i, sg)) for i, sg in enumerate(confirmed_subgroups)]
     async for part in _merge_streams(factories, settings.subgroup_concurrency):
         yield part
 
     completed_count = sum(t is not None for t in texts)
     logger.info(
         "[chain] === SUB-GROUP ANALYSES COMPLETE === %d/%d succeeded in %.1fs",
-        completed_count, n, time.monotonic() - chain_start,
+        completed_count,
+        n,
+        time.monotonic() - chain_start,
     )
 
     if completed_count:
@@ -1119,7 +1209,8 @@ async def stream_analysis_chain(
             for i, sg in enumerate(confirmed_subgroups)
         ]
         async for part in stream_synthesis_only(
-            messages=messages, analysis_texts=analysis_texts,
+            messages=messages,
+            analysis_texts=analysis_texts,
         ):
             yield part
     else:
@@ -1164,28 +1255,35 @@ async def stream_synthesis_only(
         parser.drain_section_transitions()
         parts: list[tuple[str, Any]] = []
         for section_id, summary in parser.drain_pending_step_summaries():
-            parts.append(("data", {
-                "type": "step_summary",
-                "section_id": section_id,
-                "summary": summary,
-            }))
+            parts.append(
+                (
+                    "data",
+                    {
+                        "type": "step_summary",
+                        "section_id": section_id,
+                        "summary": summary,
+                    },
+                )
+            )
             label = _SYNTHESIS_SECTION_NAMES.get(section_id, section_id)
             parts.append(("text", f"✓ **{label}** complete. *{summary}*\n\n"))
         for section_id, card in parser.drain_pending_summary_cards():
             if section_id == "design_improvements":
                 followups = card.get("suggested_followups")
-            parts.append(("data", {
-                "type": "summary_card",
-                "section_id": section_id,
-                "card": card,
-            }))
+            parts.append(
+                (
+                    "data",
+                    {
+                        "type": "summary_card",
+                        "section_id": section_id,
+                        "card": card,
+                    },
+                )
+            )
         return parts
 
     def content(chunks: list[tuple[str, str]]) -> list[tuple[str, Any]]:
-        return [
-            ("analysis_content", {"section": section_id, "delta": delta})
-            for section_id, delta in chunks if delta
-        ]
+        return [("analysis_content", {"section": section_id, "delta": delta}) for section_id, delta in chunks if delta]
 
     try:
         synthesis_start = time.monotonic()
@@ -1205,25 +1303,28 @@ async def stream_synthesis_only(
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "complete"})
     except Exception:
         logger.exception("[synthesis] FAILED")
-        yield ("analysis_content", {
-            "section": "equity_assessment",
-            "delta": (
-                "\n\n> **Analysis error**: The equity synthesis could not be completed. "
-                "The per-sub-group analyses above are still available.\n\n"
-            ),
-        })
+        yield (
+            "analysis_content",
+            {
+                "section": "equity_assessment",
+                "delta": (
+                    "\n\n> **Analysis error**: The equity synthesis could not be completed. "
+                    "The per-sub-group analyses above are still available.\n\n"
+                ),
+            },
+        )
         yield ("data", {"type": "analysis_step", "step": "synthesis", "status": "error"})
 
-    if not (
-        isinstance(followups, list)
-        and len([f for f in followups if isinstance(f, str) and f.strip()]) >= 3
-    ):
+    if not (isinstance(followups, list) and len([f for f in followups if isinstance(f, str) and f.strip()]) >= 3):
         followups = _FALLBACK_FOLLOWUPS
     chips = [f.strip() for f in followups if isinstance(f, str) and f.strip()][:3]
-    yield ("text", (
-        "\n\nAsk anything about the reports, or pick a deep-dive:\n"
-        f"<suggested_answers>{json.dumps(chips, ensure_ascii=False)}</suggested_answers>"
-    ))
+    yield (
+        "text",
+        (
+            "\n\nAsk anything about the reports, or pick a deep-dive:\n"
+            f"<suggested_answers>{json.dumps(chips, ensure_ascii=False)}</suggested_answers>"
+        ),
+    )
 
 
 async def stream_response(
@@ -1285,14 +1386,17 @@ async def stream_response(
 
         logger.info("[scan] Starting population relevance scan")
         yield ("data", {"type": "analysis_step", "step": "scan", "status": "active"})
-        yield ("text", (
-            "I'm now assessing which population characteristics this policy "
-            "interacts with — this takes a minute or two.\n\n"
-            "While I work, it's worth jotting down your own view: **which population "
-            "groups would you expect to be most affected by this policy, and would "
-            "they benefit or lose out?** Comparing your expectations against the "
-            "assessment is a useful check on both.\n\n"
-        ))
+        yield (
+            "text",
+            (
+                "I'm now assessing which population characteristics this policy "
+                "interacts with — this takes a minute or two.\n\n"
+                "While I work, it's worth jotting down your own view: **which population "
+                "groups would you expect to be most affected by this policy, and would "
+                "they benefit or lose out?** Comparing your expectations against the "
+                "assessment is a useful check on both.\n\n"
+            ),
+        )
 
         api_messages = _build_messages(
             system_prompt=system_prompt,
@@ -1341,46 +1445,56 @@ async def stream_response(
                     stripped = line.strip()
                     if stripped in _scan_category_headings:
                         if categories_seen > 0:
-                            yield ("data", {
-                                "type": "scan_category_complete",
-                                "completed": categories_seen,
-                                "total": 6,
-                            })
+                            yield (
+                                "data",
+                                {
+                                    "type": "scan_category_complete",
+                                    "completed": categories_seen,
+                                    "total": 6,
+                                },
+                            )
                         categories_seen += 1
 
-                yield ("analysis_content", {
-                    "section": "scan",
-                    "delta": delta.content,
-                })
+                yield (
+                    "analysis_content",
+                    {
+                        "section": "scan",
+                        "delta": delta.content,
+                    },
+                )
 
         if categories_seen > 0:
-            yield ("data", {
-                "type": "scan_category_complete",
-                "completed": categories_seen,
-                "total": 6,
-            })
+            yield (
+                "data",
+                {
+                    "type": "scan_category_complete",
+                    "completed": categories_seen,
+                    "total": 6,
+                },
+            )
 
         logger.info(
             "[scan] Stream complete — %d chunks received, %d categories detected",
-            token_count, categories_seen,
+            token_count,
+            categories_seen,
         )
         yield ("data", {"type": "analysis_step", "step": "scan", "status": "complete"})
 
         full_text = "".join(full_response)
         scan_card = _extract_summary_card(full_text)
         if scan_card:
-            yield ("data", {
-                "type": "summary_card",
-                "section_id": "scan",
-                "card": scan_card,
-            })
+            yield (
+                "data",
+                {
+                    "type": "summary_card",
+                    "section_id": "scan",
+                    "card": scan_card,
+                },
+            )
         subgroups_data = _extract_subgroups_from_response(full_text)
         if subgroups_data is not None:
             relevance_scan = subgroups_data.get("relevance_scan", {})
-            high_count = sum(
-                1 for v in relevance_scan.values()
-                if isinstance(v, str) and v.upper() == "HIGH"
-            )
+            high_count = sum(1 for v in relevance_scan.values() if isinstance(v, str) and v.upper() == "HIGH")
             subgroup_count = len(subgroups_data.get("subgroups", []))
             logger.info(
                 "[scan] Extracted %d sub-groups, %d HIGH-relevance characteristics",
@@ -1388,10 +1502,13 @@ async def stream_response(
                 high_count,
             )
 
-            yield ("data", {
-                "type": "proposed_sub_groups",
-                **subgroups_data,
-            })
+            yield (
+                "data",
+                {
+                    "type": "proposed_sub_groups",
+                    **subgroups_data,
+                },
+            )
 
             scan_summary_text = ""
             finding_bullets = ""
@@ -1400,11 +1517,7 @@ async def stream_response(
                     scan_summary_text = f" {scan_card['summary']}"
                 findings = scan_card.get("key_findings")
                 if isinstance(findings, list):
-                    lines = [
-                        f"- {f.strip()}"
-                        for f in findings
-                        if isinstance(f, str) and f.strip()
-                    ][:3]
+                    lines = [f"- {f.strip()}" for f in findings if isinstance(f, str) and f.strip()][:3]
                     if lines:
                         finding_bullets = "\n\n" + "\n".join(lines)
 
@@ -1431,12 +1544,16 @@ async def stream_response(
         )
         evidence_context = None
     else:
-        system_prompt = _load_prompt("system.md").replace(
-            "{{POLICY_SPECIFICATION}}", _extract_policy_spec_from_history(messages),
-        ).replace(
-            "{{ANALYSIS_REPORTS}}",
-            _format_analyses(analysis_texts) if analysis_texts
-            else "No analysis has been run yet.",
+        system_prompt = (
+            _load_prompt("system.md")
+            .replace(
+                "{{POLICY_SPECIFICATION}}",
+                _extract_policy_spec_from_history(messages),
+            )
+            .replace(
+                "{{ANALYSIS_REPORTS}}",
+                _format_analyses(analysis_texts) if analysis_texts else "No analysis has been run yet.",
+            )
         )
         evidence_context = _format_evidence_context(evidence or [])
 
@@ -1446,15 +1563,9 @@ async def stream_response(
         evidence_context=evidence_context,
     )
 
-    model = (
-        settings.openai_socratic_model
-        if stage == "specifying"
-        else settings.openai_chat_model
-    )
+    model = settings.openai_socratic_model if stage == "specifying" else settings.openai_chat_model
     reasoning_effort = (
-        settings.openai_socratic_reasoning_effort
-        if stage == "specifying"
-        else settings.openai_chat_reasoning_effort
+        settings.openai_socratic_reasoning_effort if stage == "specifying" else settings.openai_chat_reasoning_effort
     )
 
     chat_kwargs: dict[str, Any] = dict(

@@ -44,6 +44,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     """
     user_messages = [m for m in request.messages if m.role == "user"]
     if not user_messages:
+
         async def empty_response():
             yield _format_text_part("Please provide a message.")
             yield _format_finish_step()
@@ -63,7 +64,9 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         retriever = get_retriever()
         latest_query = user_messages[-1].content
         evidence = await asyncio.to_thread(
-            retriever.retrieve, latest_query, top_k=settings.retrieval_top_k,
+            retriever.retrieve,
+            latest_query,
+            top_k=settings.retrieval_top_k,
         )
     elif request.stage == "analysing" and request.confirmed_subgroups:
         retriever = get_retriever()

@@ -47,7 +47,4 @@ class HybridRetriever:
             query,
         )
 
-        return [
-            RetrievalResult(chunk=chunk, score=score)
-            for chunk, score in results
-        ]
+        return [RetrievalResult(chunk=chunk, score=score) for chunk, score in results]

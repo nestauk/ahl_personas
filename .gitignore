@@ -46,3 +46,6 @@ data/qdrant_store/
 # Next.js generated
 frontend/next-env.d.ts
 frontend/tsconfig.tsbuildinfo
+
+# Prompt replay outputs (scripts/replay.py)
+replays/

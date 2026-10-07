@@ -1484,3 +1484,13 @@ Analyst workshop and two live-test rounds: a full run took 13–14 minutes (five
 | Follow-up chat | n/a | 5 s, ~140 words, cites `[SGn]` and evidence, ends with 3 chips |
 
 Scan remains the longest single step; its tables are still ~12k characters.
+
+---
+
+## 2026-10-07 — Prompt replay harness and first prompt iteration
+
+- `scripts/replay.py` replays one stage (socratic, scan, subgroup, synthesis, chat, chain) against a fixture in `fixtures/`, prints pass/fail checks against each prompt's own budgets and writes an analyst-view + raw-output file to `replays/`. Fixtures: `price_cap.json`, `healthy_start.json`.
+- Scan prompt: sub-groups get a plain-English 3–7 word `name` (modifier labels stay in `modifiers`); a modifier shared by the whole target population is no longer repeated in every sub-group.
+- Synthesis and chat prompts: SG labels are citations, never nouns in prose; follow-up chips may be 16 words and must not restate the group's defining feature.
+- Sub-group prompt: explicit `**Benefits** / **Harms** / **Depends on implementation**` markup so the lists are distinguishable.
+- Parser fix: `_find_partial_marker_start` checked buffer suffixes, so a stream pause inside `## Equity Assessment` flushed `## ` and left an empty heading at the top of every synthesis section. It now checks the whole trailing line; covered by a chunked-heading test.

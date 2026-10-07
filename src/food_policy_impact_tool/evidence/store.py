@@ -137,9 +137,7 @@ class EvidenceStore:
         """
         results = self._client.scroll(
             collection_name=COLLECTION_NAME,
-            scroll_filter=Filter(
-                must=[FieldCondition(key="pdf_filename", match=MatchValue(value=pdf_filename))]
-            ),
+            scroll_filter=Filter(must=[FieldCondition(key="pdf_filename", match=MatchValue(value=pdf_filename))]),
             limit=1,
             with_payload=["content_hash"],
         )
@@ -157,9 +155,7 @@ class EvidenceStore:
         self._client.delete(
             collection_name=COLLECTION_NAME,
             points_selector=FilterSelector(
-                filter=Filter(
-                    must=[FieldCondition(key="pdf_filename", match=MatchValue(value=pdf_filename))]
-                )
+                filter=Filter(must=[FieldCondition(key="pdf_filename", match=MatchValue(value=pdf_filename))])
             ),
         )
         logger.info("Deleted chunks for source '%s'", pdf_filename)
@@ -259,10 +255,7 @@ class EvidenceStore:
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
-        return [
-            (_payload_to_chunk(payloads[pid]), score)
-            for pid, score in ranked
-        ]
+        return [(_payload_to_chunk(payloads[pid]), score) for pid, score in ranked]
 
     def count(self) -> int:
         """Return the total number of points in the collection."""

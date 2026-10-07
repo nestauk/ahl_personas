@@ -28,6 +28,8 @@ All analysis is grounded in a curated evidence base of qualitative and mixed-met
 ├── data/                          # Evidence base
 │   ├── *.csv                      # Metadata index of sources
 │   └── sources/                   # PDF reports referenced by the index
+├── scripts/replay.py              # Prompt replay harness (see "Iterating on prompts")
+├── fixtures/                      # Saved policy specs and outputs for replays
 ├── tests/                         # Test suite
 └── docs/                          # Project documentation
     ├── CONTEXT.md                 # Problem statement and design principles
@@ -89,6 +91,23 @@ uv run uvicorn food_policy_impact_tool.api:app --reload --port 8010
 cd frontend
 npm run dev
 ```
+
+## Iterating on prompts
+
+Prompts live in `src/food_policy_impact_tool/llm/prompts/*.md`. To refine one, edit it and replay just the stage it drives against a saved fixture:
+
+```bash
+uv run python scripts/replay.py synthesis fixtures/price_cap.json
+uv run python scripts/replay.py subgroup  fixtures/healthy_start.json --subgroup 2
+uv run python scripts/replay.py chat      fixtures/price_cap.json --question "Which group loses most?"
+uv run python scripts/replay.py scan      fixtures/healthy_start.json
+uv run python scripts/replay.py socratic  fixtures/price_cap.json
+uv run python scripts/replay.py chain     fixtures/<new>.json --save-fixture   # full run; stores sub-groups and texts
+```
+
+Each run prints pass/fail checks against the prompt's own budgets (headings, word counts, badge integrity, card fields, chips) and writes `replays/<fixture>-<stage>-<timestamp>.md` with what the analyst would see followed by the raw output. Diff two replay files to compare a prompt edit. Synthesis and chat replays reuse the saved sub-group texts, so they take under a minute. Timings and token counts for every replay are in Langfuse under the usual call names.
+
+Fixtures are JSON files in `fixtures/` with the policy spec, proposed sub-groups and saved section texts. To add a policy, write a fixture with `name`, `policy_description` and `spec`, then run `chain --save-fixture` once.
 
 ## Documentation
 

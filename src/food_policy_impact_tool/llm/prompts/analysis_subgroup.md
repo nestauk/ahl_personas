@@ -93,13 +93,24 @@ Produce the sections below, in this order, using these exact `###` headings. **T
 
 ### Benefits and harms
 
-**400 words or fewer.** Open with one **bold sentence** stating the net direction for this sub-group (benefits / harmed / mixed) and the main reason. Then:
+**400 words or fewer.** Open with one **bold sentence** stating the net direction for this sub-group (benefits / harmed / mixed) and the main reason. Then three labelled lists, using exactly this markup so the analyst can tell them apart:
+
+```
+**Benefits**
+- **Lead-in:** pathway sentence(s). [badge]
+
+**Harms**
+- **Lead-in:** pathway sentence(s). [badge]
+
+**Depends on implementation**
+- **Lead-in:** pathway sentence(s). [badge]
+```
 
 - **Benefits** — 1 to 3 bullets.
 - **Harms** — 1 to 3 bullets, including the single most important second-order effect.
-- **Depends on implementation** — 0 to 2 bullets, only where the direction genuinely turns on a design choice.
+- **Depends on implementation** — 0 to 2 bullets, only where the direction genuinely turns on a design choice. Omit the label if there are none.
 
-Each bullet starts with a bold lead-in of a few words, then states the pathway (how the policy's mechanism reaches this group through its material constraints) in one or two sentences, with its grounding badge.
+Each bullet starts with a bold lead-in of a few words, then states the pathway (how the policy's mechanism reaches this group through its material constraints) in one or two sentences ending in a full stop, then its grounding badge.
 
 ### Also worth noting
 
